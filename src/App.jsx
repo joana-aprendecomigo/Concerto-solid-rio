@@ -1060,7 +1060,7 @@ export default function App() {
 
   if (!booted) {
     return (
-      <div style={{ background: C.bg, minHeight: 480, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif", color: C.inkSoft }}>
+      <div style={{ background: C.bg, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif", color: C.inkSoft }}>
         <style>{FONTS}</style>
         A preparar a plataforma…
       </div>
@@ -1069,7 +1069,7 @@ export default function App() {
 
   if (!user) {
     return (
-      <div style={{ position: "relative", background: C.gradient, minHeight: 560, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif", padding: 24, overflow: "hidden" }}>
+      <div style={{ position: "relative", background: C.gradient, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif", padding: 24, overflow: "hidden" }}>
         <style>{FONTS}</style>
         {/* elementos decorativos — círculos de luz suaves, para um fundo mais dinâmico */}
         <div style={{ position: "absolute", top: "-12%", right: "-8%", width: 420, height: 420, borderRadius: "50%", background: "radial-gradient(circle, rgba(230,23,140,0.35) 0%, rgba(230,23,140,0) 70%)", pointerEvents: "none" }} />
@@ -1129,7 +1129,7 @@ export default function App() {
   }
 
   return (
-    <div style={{ display: "flex", minHeight: 640, fontFamily: "Inter, sans-serif", background: C.bg }}>
+    <div style={{ display: "flex", minHeight: "100vh", fontFamily: "Inter, sans-serif", background: C.bg }}>
       <style>{FONTS}</style>
       <Sidebar module={module} setModuleKey={setModuleKey} user={user} setUser={setUser} showToast={showToast} />
       <div style={{ flex: 1, minWidth: 0, padding: module === "dashboard" ? 0 : "28px 32px" }}>

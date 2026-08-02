@@ -4,6 +4,19 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Concerto Solidário · YME</title>
+    <style>
+      /* O componente desenha o seu próprio fundo e ocupa a altura toda da
+         janela; sem isto, as margens por omissão do browser deixam faixas
+         brancas à volta. */
+      html, body, #root {
+        margin: 0;
+        padding: 0;
+        min-height: 100%;
+      }
+      body {
+        background: #0F172B;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
