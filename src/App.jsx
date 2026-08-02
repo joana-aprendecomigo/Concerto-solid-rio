@@ -339,7 +339,18 @@ function useEcraEstreito() {
   return estreito;
 }
 
-const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+// Identificadores no formato UUID, exigido pelas colunas `id` da base de dados.
+// A versão anterior devolvia texto aleatório curto, que o Postgres rejeitava:
+// tudo o que fosse criado na plataforma falhava ao gravar, sem que a lista no
+// ecrã o mostrasse.
+const uid = () => {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  // Alternativa para browsers sem crypto.randomUUID (ou em contexto inseguro).
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+  });
+};
 const blankArtist = () => ({
   id: uid(), nome: "", agencia: "", pessoaContacto: "", email: "", telefone: "",
   responsavel: "", estado: "Por contactar", dataUltimoContacto: "", dataProximoContacto: "",
@@ -682,7 +693,11 @@ export default function App() {
         auto.push({ ...existente, titulo: `${verbo}: ${c.nome}`, responsavel: c.responsavel, origem: { tipo, contactId: c.id } });
       } else {
         auto.push({
-          id: `auto-${tipo}-${c.id}`,
+          // Antes o id era derivado do contacto (`auto-tipo-id`) para evitar
+          // duplicados. Isso deixou de ser preciso — há um índice único na base
+          // de dados — e o formato não era um UUID válido, pelo que a tarefa
+          // nunca chegava a ser gravada.
+          id: uid(),
           titulo: `${verbo}: ${c.nome}`,
           responsavel: c.responsavel,
           dataLimite: c.dataProximoContacto || "",
@@ -700,7 +715,14 @@ export default function App() {
     if (JSON.stringify(next) !== JSON.stringify(base)) {
       tasksRef.current = next;
       setTasks(next);
-      try { await window.storage.set(KEY_TASKS, JSON.stringify(next), true); } catch {}
+      try {
+        await window.storage.set(KEY_TASKS, JSON.stringify(next), true);
+      } catch (e) {
+        // Não interrompe o trabalho da pessoa (estas tarefas são geradas
+        // automaticamente), mas fica registado — em silêncio, um erro aqui
+        // fazia as tarefas parecerem criadas sem nunca terem sido gravadas.
+        console.error("[Concerto] Falha ao sincronizar tarefas automáticas", e);
+      }
     }
   };
 
@@ -794,54 +816,68 @@ export default function App() {
   const showToast = (msg, kind = "info") => {
     setToast({ msg, kind });
     clearTimeout(showToast._t);
-    showToast._t = setTimeout(() => setToast(null), 2600);
+    // Os erros ficam mais tempo no ecrã: uma gravação falhada que passe
+    // despercebida faz a pessoa pensar que o trabalho ficou guardado.
+    showToast._t = setTimeout(() => setToast(null), kind === "error" ? 9000 : 2600);
+  };
+
+  // Grava e devolve se correu bem. O estado no ecrã é atualizado à mesma (para
+  // a edição não parecer perdida), mas o erro é mostrado com o motivo, porque
+  // ficar só na consola levava a equipa a julgar que estava tudo guardado.
+  const gravar = async (chave, valor) => {
+    try {
+      await window.storage.set(chave, JSON.stringify(valor), true);
+      return true;
+    } catch (e) {
+      console.error("[Concerto] Falha ao guardar", chave, e);
+      showToast(
+        `Não foi possível guardar${e?.message ? ` (${e.message})` : ""}. ` +
+          "Verifica a ligação e tenta novamente — as alterações ainda não estão seguras.",
+        "error"
+      );
+      return false;
+    }
   };
 
   const persistArtists = async (next) => {
     setArtists(next);
-    try { await window.storage.set(KEY_ARTISTS, JSON.stringify(next), true); }
-    catch { showToast("Não foi possível guardar — tenta novamente.", "error"); }
+    await gravar(KEY_ARTISTS, next);
     await syncContactTasks("artista", next);
   };
 
   const persistSpaces = async (next) => {
     setSpaces(next);
-    try { await window.storage.set(KEY_SPACES, JSON.stringify(next), true); }
-    catch { showToast("Não foi possível guardar — tenta novamente.", "error"); }
+    await gravar(KEY_SPACES, next);
     await syncContactTasks("espaco", next);
   };
 
   const persistPartners = async (next) => {
     setPartners(next);
-    try { await window.storage.set(KEY_PARTNERS, JSON.stringify(next), true); }
-    catch { showToast("Não foi possível guardar — tenta novamente.", "error"); }
+    await gravar(KEY_PARTNERS, next);
     await syncContactTasks("parceiro", next);
   };
 
   const persistTemplates = async (next) => {
     setTemplates(next);
-    try { await window.storage.set(KEY_TEMPLATES, JSON.stringify(next), true); }
-    catch { showToast("Não foi possível guardar — tenta novamente.", "error"); }
+    await gravar(KEY_TEMPLATES, next);
   };
 
   const persistTasks = async (next) => {
     tasksRef.current = next;
     setTasks(next);
-    try { await window.storage.set(KEY_TASKS, JSON.stringify(next), true); }
-    catch { showToast("Não foi possível guardar — tenta novamente.", "error"); }
+    await gravar(KEY_TASKS, next);
   };
 
   const persistDocuments = async (next) => {
     setDocuments(next);
-    try { await window.storage.set(KEY_DOCUMENTS, JSON.stringify(next), true); }
-    catch { showToast("Não foi possível guardar — tenta novamente.", "error"); }
+    await gravar(KEY_DOCUMENTS, next);
   };
 
   const registerMember = async (name) => {
     if (!name || members.includes(name)) return;
     const next = [...members, name];
     setMembers(next);
-    try { await window.storage.set(KEY_MEMBERS, JSON.stringify(next), true); } catch {}
+    await gravar(KEY_MEMBERS, next);
   };
 
   // ---------- seguimento, follow-up automático, notas e conclusão de tarefas ----------
