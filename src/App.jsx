@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import * as XLSX from "xlsx";
+import { definirApenasLeitura } from "./lib/storageSupabase.js";
 import {
   listarMembros, definirCodigo, entrar, sair, membroComSessao, mudarCodigo, dadosMembro, COMPRIMENTO_MINIMO,
 } from "./lib/auth.js";
@@ -706,6 +707,13 @@ export default function App() {
   // Cargo e departamento de quem tem sessão, para preencher a assinatura dos
   // e-mails sem obrigar a escrevê-los à mão em cada envio.
   const [remetente, setRemetente] = useState(null);
+  // Modo visitante: consulta tudo, não altera nada. Guardado na sessão do
+  // browser para sobreviver a recarregar a página e às remontagens da
+  // sincronização, tal como acontece com o módulo escolhido.
+  const [visitante, setVisitante] = useState(() => {
+    try { return window.sessionStorage.getItem("ymec_visitante") === "1"; } catch { return false; }
+  });
+  const soLeitura = visitante;
   const [members, setMembers] = useState([]);
   const [artists, setArtists] = useState(null);
   const [spaces, setSpaces] = useState(null);
@@ -789,6 +797,17 @@ export default function App() {
       }
     })();
   }, []);
+
+  // Informa a camada de dados de que nada pode ser gravado. Fica aqui, e não
+  // só nos botões, para nenhum caminho esquecido do interface conseguir
+  // escrever — incluindo as tarefas automáticas, criadas sem intervenção.
+  useEffect(() => {
+    definirApenasLeitura(soLeitura);
+    try {
+      if (visitante) window.sessionStorage.setItem("ymec_visitante", "1");
+      else window.sessionStorage.removeItem("ymec_visitante");
+    } catch {}
+  }, [soLeitura, visitante]);
 
   // Dados para a assinatura, recarregados sempre que muda quem está a usar.
   useEffect(() => {
@@ -883,6 +902,7 @@ export default function App() {
   const terminarSessao = async () => {
     try { await sair(); } catch {}
     setUser(null);
+    setVisitante(false);
   };
 
   const showToast = (msg, kind = "info") => {
@@ -1245,7 +1265,7 @@ export default function App() {
     );
   }
 
-  if (!user) {
+  if (!user && !visitante) {
     return (
       <div style={{ position: "relative", background: C.gradient, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif", padding: 24, overflow: "hidden" }}>
         <style>{FONTS}</style>
@@ -1282,7 +1302,16 @@ export default function App() {
           </div>
 
           <div style={{ background: "rgba(15,23,43,0.55)", backdropFilter: "blur(10px)", borderRadius: 20, padding: 32, border: "1px solid rgba(255,255,255,0.12)", boxShadow: "0 24px 60px rgba(10,10,30,0.35)" }}>
-            <EcraEntrada onEntrou={(nome) => { setUser(nome); registerMember(nome); }} />
+            <EcraEntrada
+              onEntrou={(nome, opts) => {
+                if (opts?.visitante) {
+                  setVisitante(true);
+                  return;
+                }
+                setUser(nome);
+                registerMember(nome);
+              }}
+            />
           </div>
         </div>
       </div>
@@ -1324,6 +1353,7 @@ export default function App() {
           user={user}
           onSair={terminarSessao}
           showToast={showToast}
+          soLeitura={soLeitura}
           flutuante={ecraEstreito}
           onFechar={() => setMenuAberto(false)}
         />
@@ -1342,12 +1372,14 @@ export default function App() {
             tasks={tasks}
             members={members}
             user={user}
+            soLeitura={soLeitura}
           />
         ) : module === "artistas" ? (
           <ArtistasModule
             artists={artists}
             persistArtists={persistArtists}
             user={user}
+            soLeitura={soLeitura}
             members={members}
             registerMember={registerMember}
             showToast={showToast}
@@ -1362,6 +1394,7 @@ export default function App() {
             spaces={spaces}
             persistSpaces={persistSpaces}
             user={user}
+            soLeitura={soLeitura}
             members={members}
             registerMember={registerMember}
             showToast={showToast}
@@ -1376,6 +1409,7 @@ export default function App() {
             partners={partners}
             persistPartners={persistPartners}
             user={user}
+            soLeitura={soLeitura}
             members={members}
             registerMember={registerMember}
             showToast={showToast}
@@ -1390,6 +1424,7 @@ export default function App() {
             templates={templates}
             persistTemplates={persistTemplates}
             user={user}
+            soLeitura={soLeitura}
             showToast={showToast}
           />
         ) : module === "tarefas" ? (
@@ -1397,6 +1432,7 @@ export default function App() {
             tasks={tasks}
             persistTasks={persistTasks}
             user={user}
+            soLeitura={soLeitura}
             showToast={showToast}
             onToggleTask={toggleTaskConcluida}
             onSetTaskEstado={setTaskEstado}
@@ -1411,6 +1447,7 @@ export default function App() {
             documents={documents}
             persistDocuments={persistDocuments}
             user={user}
+            soLeitura={soLeitura}
             showToast={showToast}
           />
         ) : (
@@ -1523,6 +1560,29 @@ function EcraEntrada({ onEntrou }) {
           ))}
         </div>
         {erro && <div style={{ marginTop: 14, color: "#FFB4C0", fontSize: 12.5 }}>{erro}</div>}
+
+        {/* Acesso de consulta para quem acompanha o projeto sem participar na
+            organização. Não pede código e não permite alterar nada. */}
+        <div style={{ marginTop: 22, paddingTop: 18, borderTop: "1px solid rgba(255,255,255,0.12)" }}>
+          <button
+            type="button"
+            onClick={() => onEntrou(null, { visitante: true })}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
+              width: "100%", padding: "10px 14px", borderRadius: 10,
+              border: "1px solid rgba(255,255,255,0.16)", background: "transparent",
+              color: "rgba(255,255,255,0.7)", fontSize: 13, cursor: "pointer",
+              fontFamily: "Inter, sans-serif", fontWeight: 500,
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+          >
+            <Eye size={14} /> Entrar como visitante
+          </button>
+          <div style={{ marginTop: 8, color: "rgba(255,255,255,0.4)", fontSize: 11.5, lineHeight: 1.5, textAlign: "center" }}>
+            Acompanha o projeto sem poder alterar nada.
+          </div>
+        </div>
       </>
     );
   }
@@ -1679,7 +1739,7 @@ function ModalMudarCodigo({ nome, onFechar }) {
 /* ---------- sidebar ---------- */
 // `flutuante` = ecrã estreito: o menu abre por cima do conteúdo em vez de
 // ocupar uma coluna permanente, que num telemóvel comeria metade da largura.
-function Sidebar({ module, setModuleKey, user, onSair, showToast, flutuante, onFechar }) {
+function Sidebar({ module, setModuleKey, user, onSair, showToast, flutuante, onFechar, soLeitura }) {
   const [mudarCodigoAberto, setMudarCodigoAberto] = useState(false);
   return (
     <>
@@ -1750,12 +1810,15 @@ function Sidebar({ module, setModuleKey, user, onSair, showToast, flutuante, onF
           display: "flex", alignItems: "center", gap: 8, padding: "9px 10px",
           marginTop: 22, borderTop: "1px solid rgba(255,255,255,0.14)", paddingTop: 18,
         }}>
-          <div style={{ width: 26, height: 26, borderRadius: 999, background: "rgba(255,255,255,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
-            {user.slice(0, 1).toUpperCase()}
+          <div style={{ width: 26, height: 26, borderRadius: 999, background: soLeitura ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0, color: soLeitura ? "rgba(255,255,255,0.6)" : "inherit" }}>
+            {soLeitura ? <Eye size={13} /> : user.slice(0, 1).toUpperCase()}
           </div>
-          <div style={{ fontSize: 13, fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user}</div>
+          <div style={{ fontSize: 13, fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: soLeitura ? "rgba(255,255,255,0.6)" : "inherit" }}>
+            {soLeitura ? "Visitante" : user}
+          </div>
         </div>
 
+        {!soLeitura && (
         <button
           onClick={() => setMudarCodigoAberto(true)}
           title="Mudar o meu código de acesso"
@@ -1771,6 +1834,7 @@ function Sidebar({ module, setModuleKey, user, onSair, showToast, flutuante, onF
           <Pencil size={15} style={{ flexShrink: 0 }} />
           <span style={{ flex: 1 }}>Mudar código</span>
         </button>
+        )}
 
         <button
           onClick={onSair}
@@ -1785,11 +1849,11 @@ function Sidebar({ module, setModuleKey, user, onSair, showToast, flutuante, onF
           onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
         >
           <LogOut size={15} style={{ flexShrink: 0 }} />
-          <span style={{ flex: 1 }}>Sair</span>
+          <span style={{ flex: 1 }}>{soLeitura ? "Voltar à entrada" : "Sair"}</span>
         </button>
       </div>
 
-      {mudarCodigoAberto && (
+      {mudarCodigoAberto && !soLeitura && (
         <ModalMudarCodigo nome={user} onFechar={() => setMudarCodigoAberto(false)} />
       )}
     </div>
@@ -1815,7 +1879,7 @@ function ComingSoon({ module }) {
 }
 
 /* ---------- artistas module ---------- */
-function ArtistasModule({ artists, persistArtists, user, members, registerMember, showToast, templates, onResposta, onAddNota, onEditEvento, onConcluirTarefaContacto }) {
+function ArtistasModule({ artists, persistArtists, user, members, registerMember, showToast, templates, onResposta, onAddNota, onEditEvento, onConcluirTarefaContacto, soLeitura }) {
   const [search, setSearch] = useState("");
   const [filterEstado, setFilterEstado] = useState("Todos");
   const [filterFase, setFilterFase] = useState("Todas");
@@ -2027,12 +2091,16 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
           <button onClick={exportarArtistas} style={btnGhost} title="Exportar a lista de artistas para Excel">
             <Download size={15} /> Exportar Excel
           </button>
-          <button onClick={() => setModal("reset")} style={btnGhost} title="Voltar a marcar todos os artistas como 'Por contactar', para uma nova ronda de contactos">
-            <RotateCcw size={15} /> Reiniciar estados
-          </button>
-          <button onClick={() => { setEditing(blankArtist()); setModal("add"); }} style={btnPrimary}>
-            <Plus size={15} /> Adicionar Artista
-          </button>
+          {!soLeitura && (
+            <>
+              <button onClick={() => setModal("reset")} style={btnGhost} title="Voltar a marcar todos os artistas como 'Por contactar', para uma nova ronda de contactos">
+                <RotateCcw size={15} /> Reiniciar estados
+              </button>
+              <button onClick={() => { setEditing(blankArtist()); setModal("add"); }} style={btnPrimary}>
+                <Plus size={15} /> Adicionar Artista
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -2125,7 +2193,7 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
               <thead>
                 <tr style={{ background: "#FAFBFC", borderBottom: `1px solid ${C.line}` }}>
                   <th style={{ padding: "11px 10px 11px 14px", width: 28 }}>
-                    {isLider(user) && (
+                    {!soLeitura && isLider(user) && (
                       <CheckboxToggle checked={todosVisiveisSelecionados} onChange={toggleSelectAll} title="Selecionar todos os artistas visíveis" />
                     )}
                   </th>
@@ -2143,7 +2211,7 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
                   return (
                     <tr key={a.id} style={{ borderBottom: `1px solid ${C.line}`, background: atrasado ? C.redBg : undefined }}>
                       <td style={{ padding: "12px 10px 12px 14px", verticalAlign: "top" }}>
-                        {isLider(user) && (
+                        {!soLeitura && isLider(user) && (
                           <CheckboxToggle checked={selectedIds.includes(a.id)} onChange={() => toggleSelect(a.id)} title="Selecionar" />
                         )}
                       </td>
@@ -2173,21 +2241,21 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
                           contacto={a}
                           onChange={alterarResponsavelRapido}
                           equipa={EQUIPA}
-                          podeEditar={isLider(user)}
+                          podeEditar={!soLeitura && isLider(user)}
                         />
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
-                        <EstadoSelect contacto={a} onChange={alterarEstadoRapido} />
+                        <EstadoSelect contacto={a} onChange={alterarEstadoRapido} disabled={soLeitura} />
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
-                        <FaseSelect contacto={a} onChange={alterarFaseRapido} />
+                        <FaseSelect contacto={a} onChange={alterarFaseRapido} disabled={soLeitura} />
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top", fontSize: 12.5, whiteSpace: "nowrap" }}>
-                        <DataSelect contacto={a} campo="dataUltimoContacto" valor={a.dataUltimoContacto} onChange={alterarDataRapido} etiqueta="Último contacto" />
+                        <DataSelect contacto={a} campo="dataUltimoContacto" valor={a.dataUltimoContacto} onChange={alterarDataRapido} etiqueta="Último contacto" disabled={soLeitura} />
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top", fontSize: 12.5, whiteSpace: "nowrap" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <DataSelect contacto={a} campo="dataProximoContacto" valor={a.dataProximoContacto} onChange={alterarDataRapido} etiqueta="Próximo contacto" />
+                          <DataSelect contacto={a} campo="dataProximoContacto" valor={a.dataProximoContacto} onChange={alterarDataRapido} etiqueta="Próximo contacto" disabled={soLeitura} />
                           {atrasado && (
                             <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 999, background: C.redBg, color: C.red, fontSize: 10.5, fontWeight: 700 }}>Atrasado</span>
                           )}
@@ -2198,8 +2266,12 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
                         <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-                          <button onClick={() => { setEditing(a); setModal("edit"); }} style={iconBtn} title="Editar"><Pencil size={14} /></button>
-                          <button onClick={() => { setToDelete(a); setModal("delete"); }} style={{ ...iconBtn, color: C.red }} title="Eliminar"><Trash2 size={14} /></button>
+                          <button onClick={() => { setEditing(a); setModal("edit"); }} style={iconBtn} title={soLeitura ? "Ver ficha" : "Editar"}>
+                            {soLeitura ? <Eye size={14} /> : <Pencil size={14} />}
+                          </button>
+                          {!soLeitura && (
+                            <button onClick={() => { setToDelete(a); setModal("delete"); }} style={{ ...iconBtn, color: C.red }} title="Eliminar"><Trash2 size={14} /></button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -2219,6 +2291,7 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
           onClose={() => { setModal(null); setEditing(null); }}
           onSave={saveArtist}
           isNew={modal === "add"}
+          soLeitura={soLeitura}
           templates={templates}
           user={user}
           onSendEmail={registerSend}
@@ -2376,7 +2449,14 @@ function ResponsavelSelect({ contacto, onChange, equipa, podeEditar }) {
 // O <input type="date"> fica invisível por cima do texto, como nos restantes
 // campos editáveis da lista: mantém o aspeto da tabela e abre o calendário do
 // browser ao clicar.
-function DataSelect({ contacto, campo, valor, onChange, etiqueta }) {
+function DataSelect({ contacto, campo, valor, onChange, etiqueta, disabled }) {
+  if (disabled) {
+    return (
+      <span style={{ fontSize: 12.5, whiteSpace: "nowrap", color: valor ? C.inkSoft : C.gray }}>
+        {valor || "—"}
+      </span>
+    );
+  }
   return (
     <div style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 4 }}>
       <span style={{
@@ -2453,7 +2533,7 @@ function StatCard({ label, value, icon: Icon, color, onClick, active, title }) {
 }
 
 /* ---------- espaços module ---------- */
-function EspacosModule({ spaces, persistSpaces, user, members, registerMember, showToast, templates, onResposta, onAddNota, onEditEvento, onConcluirTarefaContacto }) {
+function EspacosModule({ spaces, persistSpaces, user, members, registerMember, showToast, templates, onResposta, onAddNota, onEditEvento, onConcluirTarefaContacto, soLeitura }) {
   const [search, setSearch] = useState("");
   const [filterEstado, setFilterEstado] = useState("Todos");
   const [filterFase, setFilterFase] = useState("Todas");
@@ -2664,12 +2744,16 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
           <button onClick={exportarEspacos} style={btnGhost} title="Exportar a lista de espaços para Excel">
             <Download size={15} /> Exportar Excel
           </button>
-          <button onClick={() => setModal("reset")} style={btnGhost} title="Voltar a marcar todos os espaços como 'Por contactar', para uma nova ronda de contactos">
-            <RotateCcw size={15} /> Reiniciar estados
-          </button>
-          <button onClick={() => { setEditing(blankSpace()); setModal("add"); }} style={btnPrimary}>
-            <Plus size={15} /> Adicionar Espaço
-          </button>
+          {!soLeitura && (
+            <>
+              <button onClick={() => setModal("reset")} style={btnGhost} title="Voltar a marcar todos os espaços como 'Por contactar', para uma nova ronda de contactos">
+                <RotateCcw size={15} /> Reiniciar estados
+              </button>
+              <button onClick={() => { setEditing(blankSpace()); setModal("add"); }} style={btnPrimary}>
+                <Plus size={15} /> Adicionar Espaço
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -2762,7 +2846,7 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
               <thead>
                 <tr style={{ background: "#FAFBFC", borderBottom: `1px solid ${C.line}` }}>
                   <th style={{ padding: "11px 10px 11px 14px", width: 28 }}>
-                    {isLider(user) && (
+                    {!soLeitura && isLider(user) && (
                       <CheckboxToggle checked={todosVisiveisSelecionados} onChange={toggleSelectAll} title="Selecionar todos os espaços visíveis" />
                     )}
                   </th>
@@ -2780,7 +2864,7 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
                   return (
                     <tr key={a.id} style={{ borderBottom: `1px solid ${C.line}`, background: atrasado ? C.redBg : undefined }}>
                       <td style={{ padding: "12px 10px 12px 14px", verticalAlign: "top" }}>
-                        {isLider(user) && (
+                        {!soLeitura && isLider(user) && (
                           <CheckboxToggle checked={selectedIds.includes(a.id)} onChange={() => toggleSelect(a.id)} title="Selecionar" />
                         )}
                       </td>
@@ -2813,21 +2897,21 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
                           contacto={a}
                           onChange={alterarResponsavelRapido}
                           equipa={EQUIPA}
-                          podeEditar={isLider(user)}
+                          podeEditar={!soLeitura && isLider(user)}
                         />
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
-                        <EstadoSelect contacto={a} onChange={alterarEstadoRapido} />
+                        <EstadoSelect contacto={a} onChange={alterarEstadoRapido} disabled={soLeitura} />
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
-                        <FaseSelect contacto={a} onChange={alterarFaseRapido} />
+                        <FaseSelect contacto={a} onChange={alterarFaseRapido} disabled={soLeitura} />
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top", fontSize: 12.5, whiteSpace: "nowrap" }}>
-                        <DataSelect contacto={a} campo="dataUltimoContacto" valor={a.dataUltimoContacto} onChange={alterarDataRapido} etiqueta="Último contacto" />
+                        <DataSelect contacto={a} campo="dataUltimoContacto" valor={a.dataUltimoContacto} onChange={alterarDataRapido} etiqueta="Último contacto" disabled={soLeitura} />
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top", fontSize: 12.5, whiteSpace: "nowrap" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <DataSelect contacto={a} campo="dataProximoContacto" valor={a.dataProximoContacto} onChange={alterarDataRapido} etiqueta="Próximo contacto" />
+                          <DataSelect contacto={a} campo="dataProximoContacto" valor={a.dataProximoContacto} onChange={alterarDataRapido} etiqueta="Próximo contacto" disabled={soLeitura} />
                           {atrasado && (
                             <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 999, background: C.redBg, color: C.red, fontSize: 10.5, fontWeight: 700 }}>Atrasado</span>
                           )}
@@ -2838,8 +2922,12 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
                         <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-                          <button onClick={() => { setEditing(a); setModal("edit"); }} style={iconBtn} title="Editar"><Pencil size={14} /></button>
-                          <button onClick={() => { setToDelete(a); setModal("delete"); }} style={{ ...iconBtn, color: C.red }} title="Eliminar"><Trash2 size={14} /></button>
+                          <button onClick={() => { setEditing(a); setModal("edit"); }} style={iconBtn} title={soLeitura ? "Ver ficha" : "Editar"}>
+                            {soLeitura ? <Eye size={14} /> : <Pencil size={14} />}
+                          </button>
+                          {!soLeitura && (
+                            <button onClick={() => { setToDelete(a); setModal("delete"); }} style={{ ...iconBtn, color: C.red }} title="Eliminar"><Trash2 size={14} /></button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -2859,6 +2947,7 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
           onClose={() => { setModal(null); setEditing(null); }}
           onSave={saveSpace}
           isNew={modal === "add"}
+          soLeitura={soLeitura}
           templates={templates}
           user={user}
           onSendEmail={registerSend}
@@ -3373,7 +3462,7 @@ function TimelineEventModal({ evento, onClose, onEdit }) {
 }
 
 /* ---------- espaço add/edit modal ---------- */
-function EspacoModal({ data, members, existingList, onClose, onSave, isNew, templates, user, onSendEmail, onResposta, onAddNota, onEditEvento }) {
+function EspacoModal({ data, members, existingList, onClose, onSave, isNew, templates, user, onSendEmail, onResposta, onAddNota, onEditEvento, soLeitura }) {
   const [form, setForm] = useState({ ...data, historico: data.historico || [] });
   // Abre sempre nos dados: quem clica no lápis quer editar o contacto, não
   // consultar o histórico. A Timeline fica a um clique de distância.
@@ -3433,6 +3522,7 @@ function EspacoModal({ data, members, existingList, onClose, onSave, isNew, temp
 
       {tab === "dados" ? (
         <form onSubmit={submit}>
+          <fieldset disabled={soLeitura} style={{ border: "none", margin: 0, padding: 0, minWidth: 0 }}>
           <div className="form-grid" style={{ padding: "20px 24px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, maxHeight: "60vh", overflowY: "auto" }}>
             <Field label="Nome do espaço *" span2>
               <input required style={inputStyle} value={form.nome} onChange={(e) => set("nome", e.target.value)} />
@@ -3485,6 +3575,7 @@ function EspacoModal({ data, members, existingList, onClose, onSave, isNew, temp
               <textarea rows={3} style={{ ...inputStyle, resize: "vertical", fontFamily: "Inter, sans-serif" }} value={form.observacoes} onChange={(e) => set("observacoes", e.target.value)} />
             </Field>
           </div>
+          </fieldset>
           {avisoDuplicado && (
             <div style={{ margin: "0 24px 16px", padding: "12px 14px", borderRadius: 10, background: C.amberBg, border: `1px solid ${C.amber}`, display: "flex", gap: 10, alignItems: "flex-start" }}>
               <AlertTriangle size={16} color={C.amber} style={{ flexShrink: 0, marginTop: 1 }} />
@@ -3498,8 +3589,10 @@ function EspacoModal({ data, members, existingList, onClose, onSave, isNew, temp
             </div>
           )}
           <div style={{ padding: "16px 24px", borderTop: `1px solid ${C.line}`, display: "flex", justifyContent: "flex-end", gap: 10 }}>
-            <button type="button" onClick={onClose} style={btnGhost}>Cancelar</button>
-            <button type="submit" style={btnPrimary}>{isNew ? "Adicionar" : "Guardar alterações"}</button>
+            <button type="button" onClick={onClose} style={btnGhost}>{soLeitura ? "Fechar" : "Cancelar"}</button>
+            {!soLeitura && (
+              <button type="submit" style={btnPrimary}>{isNew ? "Adicionar" : "Guardar alterações"}</button>
+            )}
           </div>
         </form>
       ) : (
@@ -3515,7 +3608,7 @@ function EspacoModal({ data, members, existingList, onClose, onSave, isNew, temp
 }
 
 /* ---------- parceiros module ---------- */
-function ParceirosModule({ partners, persistPartners, user, members, registerMember, showToast, templates, onResposta, onAddNota, onEditEvento, onConcluirTarefaContacto }) {
+function ParceirosModule({ partners, persistPartners, user, members, registerMember, showToast, templates, onResposta, onAddNota, onEditEvento, onConcluirTarefaContacto, soLeitura }) {
   const [search, setSearch] = useState("");
   const [filterCategoria, setFilterCategoria] = useState("Todas");
   const [filterEstado, setFilterEstado] = useState("Todos");
@@ -3710,9 +3803,11 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
           <button onClick={exportarParceiros} style={btnGhost} title="Exportar a lista de parceiros para Excel">
             <Download size={15} /> Exportar Excel
           </button>
-          <button onClick={() => { setEditing(blankPartner()); setModal("add"); }} style={btnPrimary}>
-            <Plus size={15} /> Adicionar Parceiro
-          </button>
+          {!soLeitura && (
+            <button onClick={() => { setEditing(blankPartner()); setModal("add"); }} style={btnPrimary}>
+              <Plus size={15} /> Adicionar Parceiro
+            </button>
+          )}
         </div>
       </div>
 
@@ -3809,7 +3904,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
               <thead>
                 <tr style={{ background: "#FAFBFC", borderBottom: `1px solid ${C.line}` }}>
                   <th style={{ padding: "11px 10px 11px 14px", width: 28 }}>
-                    {isLider(user) && (
+                    {!soLeitura && isLider(user) && (
                       <CheckboxToggle checked={todosVisiveisSelecionados} onChange={toggleSelectAll} title="Selecionar todos os parceiros visíveis" />
                     )}
                   </th>
@@ -3829,7 +3924,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
                   return (
                     <tr key={a.id} style={{ borderBottom: `1px solid ${C.line}`, background: atrasado ? C.redBg : undefined }}>
                       <td style={{ padding: "12px 10px 12px 14px", verticalAlign: "top" }}>
-                        {isLider(user) && (
+                        {!soLeitura && isLider(user) && (
                           <CheckboxToggle checked={selectedIds.includes(a.id)} onChange={() => toggleSelect(a.id)} title="Selecionar" />
                         )}
                       </td>
@@ -3863,21 +3958,21 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
                           contacto={a}
                           onChange={alterarResponsavelRapido}
                           equipa={EQUIPA}
-                          podeEditar={isLider(user)}
+                          podeEditar={!soLeitura && isLider(user)}
                         />
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
-                        <EstadoSelect contacto={a} onChange={alterarEstadoRapido} />
+                        <EstadoSelect contacto={a} onChange={alterarEstadoRapido} disabled={soLeitura} />
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
-                        <FaseSelect contacto={a} onChange={alterarFaseRapido} />
+                        <FaseSelect contacto={a} onChange={alterarFaseRapido} disabled={soLeitura} />
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top", fontSize: 12.5, whiteSpace: "nowrap" }}>
-                        <DataSelect contacto={a} campo="dataUltimoContacto" valor={a.dataUltimoContacto} onChange={alterarDataRapido} etiqueta="Último contacto" />
+                        <DataSelect contacto={a} campo="dataUltimoContacto" valor={a.dataUltimoContacto} onChange={alterarDataRapido} etiqueta="Último contacto" disabled={soLeitura} />
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top", fontSize: 12.5, whiteSpace: "nowrap" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <DataSelect contacto={a} campo="dataProximoContacto" valor={a.dataProximoContacto} onChange={alterarDataRapido} etiqueta="Próximo contacto" />
+                          <DataSelect contacto={a} campo="dataProximoContacto" valor={a.dataProximoContacto} onChange={alterarDataRapido} etiqueta="Próximo contacto" disabled={soLeitura} />
                           {atrasado && (
                             <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 999, background: C.redBg, color: C.red, fontSize: 10.5, fontWeight: 700 }}>Atrasado</span>
                           )}
@@ -3888,8 +3983,12 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
                         <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-                          <button onClick={() => { setEditing(a); setModal("edit"); }} style={iconBtn} title="Editar"><Pencil size={14} /></button>
-                          <button onClick={() => { setToDelete(a); setModal("delete"); }} style={{ ...iconBtn, color: C.red }} title="Eliminar"><Trash2 size={14} /></button>
+                          <button onClick={() => { setEditing(a); setModal("edit"); }} style={iconBtn} title={soLeitura ? "Ver ficha" : "Editar"}>
+                            {soLeitura ? <Eye size={14} /> : <Pencil size={14} />}
+                          </button>
+                          {!soLeitura && (
+                            <button onClick={() => { setToDelete(a); setModal("delete"); }} style={{ ...iconBtn, color: C.red }} title="Eliminar"><Trash2 size={14} /></button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -3909,6 +4008,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
           onClose={() => { setModal(null); setEditing(null); }}
           onSave={savePartner}
           isNew={modal === "add"}
+          soLeitura={soLeitura}
           templates={templates}
           user={user}
           onSendEmail={registerSend}
@@ -3934,7 +4034,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
 }
 
 /* ---------- parceiro add/edit modal ---------- */
-function ParceiroModal({ data, members, existingList, onClose, onSave, isNew, templates, user, onSendEmail, onResposta, onAddNota, onEditEvento }) {
+function ParceiroModal({ data, members, existingList, onClose, onSave, isNew, templates, user, onSendEmail, onResposta, onAddNota, onEditEvento, soLeitura }) {
   const [form, setForm] = useState({ ...data, historico: data.historico || [] });
   // Abre sempre nos dados: quem clica no lápis quer editar o contacto, não
   // consultar o histórico. A Timeline fica a um clique de distância.
@@ -3992,6 +4092,7 @@ function ParceiroModal({ data, members, existingList, onClose, onSave, isNew, te
 
       {tab === "dados" ? (
         <form onSubmit={submit}>
+          <fieldset disabled={soLeitura} style={{ border: "none", margin: 0, padding: 0, minWidth: 0 }}>
           <div className="form-grid" style={{ padding: "20px 24px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, maxHeight: "60vh", overflowY: "auto" }}>
             <Field label="Nome do parceiro *" span2>
               <input required style={inputStyle} value={form.nome} onChange={(e) => set("nome", e.target.value)} />
@@ -4046,6 +4147,7 @@ function ParceiroModal({ data, members, existingList, onClose, onSave, isNew, te
               <textarea rows={3} style={{ ...inputStyle, resize: "vertical", fontFamily: "Inter, sans-serif" }} value={form.observacoes} onChange={(e) => set("observacoes", e.target.value)} />
             </Field>
           </div>
+          </fieldset>
           {avisoDuplicado && (
             <div style={{ margin: "0 24px 16px", padding: "12px 14px", borderRadius: 10, background: C.amberBg, border: `1px solid ${C.amber}`, display: "flex", gap: 10, alignItems: "flex-start" }}>
               <AlertTriangle size={16} color={C.amber} style={{ flexShrink: 0, marginTop: 1 }} />
@@ -4059,8 +4161,10 @@ function ParceiroModal({ data, members, existingList, onClose, onSave, isNew, te
             </div>
           )}
           <div style={{ padding: "16px 24px", borderTop: `1px solid ${C.line}`, display: "flex", justifyContent: "flex-end", gap: 10 }}>
-            <button type="button" onClick={onClose} style={btnGhost}>Cancelar</button>
-            <button type="submit" style={btnPrimary}>{isNew ? "Adicionar" : "Guardar alterações"}</button>
+            <button type="button" onClick={onClose} style={btnGhost}>{soLeitura ? "Fechar" : "Cancelar"}</button>
+            {!soLeitura && (
+              <button type="submit" style={btnPrimary}>{isNew ? "Adicionar" : "Guardar alterações"}</button>
+            )}
           </div>
         </form>
       ) : (
@@ -4076,7 +4180,7 @@ function ParceiroModal({ data, members, existingList, onClose, onSave, isNew, te
 }
 
 /* ---------- artist add/edit modal ---------- */
-function ArtistModal({ data, members, existingList, onClose, onSave, isNew, templates, user, onSendEmail, onResposta, onAddNota, onEditEvento }) {
+function ArtistModal({ data, members, existingList, onClose, onSave, isNew, templates, user, onSendEmail, onResposta, onAddNota, onEditEvento, soLeitura }) {
   const [form, setForm] = useState({ ...data, historico: data.historico || [] });
   // Abre sempre nos dados: quem clica no lápis quer editar o contacto, não
   // consultar o histórico. A Timeline fica a um clique de distância.
@@ -4135,6 +4239,7 @@ function ArtistModal({ data, members, existingList, onClose, onSave, isNew, temp
 
       {tab === "dados" ? (
         <form onSubmit={submit}>
+          <fieldset disabled={soLeitura} style={{ border: "none", margin: 0, padding: 0, minWidth: 0 }}>
           <div className="form-grid" style={{ padding: "20px 24px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, maxHeight: "60vh", overflowY: "auto" }}>
             <Field label="Nome do artista *" span2>
               <input required style={inputStyle} value={form.nome} onChange={(e) => set("nome", e.target.value)} />
@@ -4184,6 +4289,7 @@ function ArtistModal({ data, members, existingList, onClose, onSave, isNew, temp
               <textarea rows={3} style={{ ...inputStyle, resize: "vertical", fontFamily: "Inter, sans-serif" }} value={form.observacoes} onChange={(e) => set("observacoes", e.target.value)} />
             </Field>
           </div>
+          </fieldset>
           {avisoDuplicado && (
             <div style={{ margin: "0 24px 16px", padding: "12px 14px", borderRadius: 10, background: C.amberBg, border: `1px solid ${C.amber}`, display: "flex", gap: 10, alignItems: "flex-start" }}>
               <AlertTriangle size={16} color={C.amber} style={{ flexShrink: 0, marginTop: 1 }} />
@@ -4197,8 +4303,10 @@ function ArtistModal({ data, members, existingList, onClose, onSave, isNew, temp
             </div>
           )}
           <div style={{ padding: "16px 24px", borderTop: `1px solid ${C.line}`, display: "flex", justifyContent: "flex-end", gap: 10 }}>
-            <button type="button" onClick={onClose} style={btnGhost}>Cancelar</button>
-            <button type="submit" style={btnPrimary}>{isNew ? "Adicionar" : "Guardar alterações"}</button>
+            <button type="button" onClick={onClose} style={btnGhost}>{soLeitura ? "Fechar" : "Cancelar"}</button>
+            {!soLeitura && (
+              <button type="submit" style={btnPrimary}>{isNew ? "Adicionar" : "Guardar alterações"}</button>
+            )}
           </div>
         </form>
       ) : (
@@ -4214,7 +4322,7 @@ function ArtistModal({ data, members, existingList, onClose, onSave, isNew, temp
 }
 
 /* ---------- templates de email module ---------- */
-function TemplatesModule({ templates, persistTemplates, user, showToast }) {
+function TemplatesModule({ templates, persistTemplates, user, showToast, soLeitura }) {
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState(null); // 'add' | 'edit' | 'delete'
   const [editing, setEditing] = useState(null);
@@ -4342,14 +4450,19 @@ function TemplatesModule({ templates, persistTemplates, user, showToast }) {
                       </div>
                       <div style={{ display: "flex", justifyContent: "flex-end", gap: 2, marginTop: 8, borderTop: `1px solid ${C.line}`, paddingTop: 6 }}>
                         <button onClick={(e) => { e.stopPropagation(); setToPreview(t); }} style={iconBtn} title="Pré-visualizar"><Eye size={13} /></button>
-                        <button onClick={(e) => { e.stopPropagation(); duplicateTemplate(t); }} style={iconBtn} title="Duplicar"><Copy size={13} /></button>
-                        <button onClick={(e) => { e.stopPropagation(); setEditing(t); setModal("edit"); }} style={iconBtn} title="Editar"><Pencil size={13} /></button>
-                        <button onClick={(e) => { e.stopPropagation(); setToDelete(t); setModal("delete"); }} style={{ ...iconBtn, color: C.red }} title="Eliminar"><Trash2 size={13} /></button>
+                        {!soLeitura && (
+                          <>
+                            <button onClick={(e) => { e.stopPropagation(); duplicateTemplate(t); }} style={iconBtn} title="Duplicar"><Copy size={13} /></button>
+                            <button onClick={(e) => { e.stopPropagation(); setEditing(t); setModal("edit"); }} style={iconBtn} title="Editar"><Pencil size={13} /></button>
+                            <button onClick={(e) => { e.stopPropagation(); setToDelete(t); setModal("delete"); }} style={{ ...iconBtn, color: C.red }} title="Eliminar"><Trash2 size={13} /></button>
+                          </>
+                        )}
                       </div>
                     </div>
                   ))
                 )}
 
+                {!soLeitura && (
                 <button
                   className="tmpl-add-btn"
                   onClick={() => { setEditing({ ...blankTemplate(), categoria: cat.v, fase: proximaFase(cat.v) }); setModal("add"); }}
@@ -4357,6 +4470,7 @@ function TemplatesModule({ templates, persistTemplates, user, showToast }) {
                 >
                   <Plus size={13} /> Adicionar fase
                 </button>
+                )}
               </div>
             </div>
           );
@@ -4632,7 +4746,7 @@ function TemplatePreviewModal({ template, onClose }) {
 /* ---------- tarefas module ---------- */
 function TarefasModule({
   tasks, persistTasks, user, showToast, onToggleTask, onSetTaskEstado,
-  templates, listByTipo, onResposta, members, remetente,
+  templates, listByTipo, onResposta, members, remetente, soLeitura,
 }) {
   const [modal, setModal] = useState(null); // 'add' | 'edit' | 'delete'
   const [editing, setEditing] = useState(null);
@@ -4699,7 +4813,7 @@ function TarefasModule({
           <div style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, fontSize: 24, color: C.ink }}>Tarefas</div>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
-          {isLider(user) && (
+          {!soLeitura && isLider(user) && (
             <button onClick={() => { setEditing(blankTask()); setModal("add"); }} style={btnPrimary}>
               <Plus size={15} /> Nova Tarefa
             </button>
@@ -4771,7 +4885,7 @@ function TarefasModule({
                       // apenas os líderes, ou o próprio responsável pela tarefa, podem mover o cartão
                       // entre colunas (concluir o seu próprio trabalho); os restantes tarefas ficam
                       // visíveis mas não são arrastáveis por quem não é dono nem líder
-                      const podeGerir = isLider(user) || t.responsavel === user;
+                      const podeGerir = !soLeitura && (isLider(user) || t.responsavel === user);
                       return (
                         <div
                           key={t.id}
@@ -4791,7 +4905,7 @@ function TarefasModule({
                         >
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 6 }}>
                             <div style={{ fontWeight: 600, fontSize: 12.5, color: C.ink, lineHeight: 1.35 }}>{t.titulo}</div>
-                            {!auto && isLider(user) && (
+                            {!auto && !soLeitura && isLider(user) && (
                               <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
                                 <button onClick={() => { setEditing(t); setModal("edit"); }} style={{ ...iconBtn, width: 22, height: 22 }} title="Editar"><Pencil size={12} /></button>
                                 <button onClick={() => { setToDelete(t); setModal("delete"); }} style={{ ...iconBtn, width: 22, height: 22, color: C.red }} title="Eliminar"><Trash2 size={12} /></button>
@@ -4875,6 +4989,7 @@ function TarefasModule({
           onSetTaskEstado={onSetTaskEstado}
           showToast={showToast}
           remetente={remetente}
+          soLeitura={soLeitura}
         />
       )}
     </div>
@@ -4882,7 +4997,7 @@ function TarefasModule({
 }
 
 /* ---------- Documentos: repositório partilhado pela equipa (acordo com o IPO e outra documentação) ---------- */
-function DocumentosModule({ documents, persistDocuments, user, showToast }) {
+function DocumentosModule({ documents, persistDocuments, user, showToast, soLeitura }) {
   const [search, setSearch] = useState("");
   const [filterCategoria, setFilterCategoria] = useState("Todas");
   const [modal, setModal] = useState(null); // 'add' | 'edit' | 'delete'
@@ -4928,9 +5043,11 @@ function DocumentosModule({ documents, persistDocuments, user, showToast }) {
         <div>
           <div style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, fontSize: 24, color: C.ink }}>Documentos</div>
         </div>
-        <button onClick={() => { setEditing(blankDocument()); setModal("add"); }} style={btnPrimary}>
-          <Plus size={15} /> Adicionar Documento
-        </button>
+        {!soLeitura && (
+          <button onClick={() => { setEditing(blankDocument()); setModal("add"); }} style={btnPrimary}>
+            <Plus size={15} /> Adicionar Documento
+          </button>
+        )}
       </div>
 
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
@@ -4970,8 +5087,12 @@ function DocumentosModule({ documents, persistDocuments, user, showToast }) {
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
-                  <button onClick={() => { setEditing(d); setModal("edit"); }} style={iconBtn} title="Editar"><Pencil size={14} /></button>
-                  <button onClick={() => { setToDelete(d); setModal("delete"); }} style={iconBtn} title="Eliminar"><Trash2 size={14} /></button>
+                  {!soLeitura && (
+                    <>
+                      <button onClick={() => { setEditing(d); setModal("edit"); }} style={iconBtn} title="Editar"><Pencil size={14} /></button>
+                      <button onClick={() => { setToDelete(d); setModal("delete"); }} style={iconBtn} title="Eliminar"><Trash2 size={14} /></button>
+                    </>
+                  )}
                 </div>
               </div>
               {d.notas && <div style={{ fontSize: 12.5, color: C.inkSoft, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{d.notas}</div>}
@@ -5057,7 +5178,7 @@ function DocumentoModal({ data, onClose, onSave, isNew }) {
    e permite indicar diretamente se houve resposta — sem precisar de abrir o contacto separadamente.
    É a mesma lógica (e os mesmos dados) da secção "Seguimento" do contacto, agora acessível a partir da
    própria tarefa, para o fluxo ficar sempre sincronizado entre tarefas, contactos e templates. */
-function AutoTaskModal({ task, templates, contact, onClose, onResposta, onSetTaskEstado, showToast, remetente }) {
+function AutoTaskModal({ task, templates, contact, onClose, onResposta, onSetTaskEstado, showToast, remetente, soLeitura }) {
   const [busy, setBusy] = useState(false);
   const origem = task.origem || {};
   const tipoInfo = TIPOS_CONTACTO[origem.tipo] || {};
@@ -5070,8 +5191,10 @@ function AutoTaskModal({ task, templates, contact, onClose, onResposta, onSetTas
   // registar resposta enquanto isso for verdade (evita duplicar ações quando já existe um follow-up
   // mais recente para o mesmo contacto)
   const faseEhAtual = contact && (contact.faseFollowup || 1) === fase;
-  const podeRegistarResposta = !!contact && !!contact.aguardaResposta && faseEhAtual;
-  const podeIniciarSeguimento = !!contact && !contact.aguardaResposta && !origem.evento && task.estado !== "Concluída";
+  // Em modo visitante o template é visível, mas registar resposta ou marcar
+  // contacto alteraria o seguimento — fica de fora.
+  const podeRegistarResposta = !soLeitura && !!contact && !!contact.aguardaResposta && faseEhAtual;
+  const podeIniciarSeguimento = !soLeitura && !!contact && !contact.aguardaResposta && !origem.evento && task.estado !== "Concluída";
 
   const clicarResposta = async (teveResposta) => {
     if (!onResposta) return;
@@ -5354,7 +5477,7 @@ const CATEGORIAS_NEGOCIACAO = ["A aguardar resposta", "Pediu mais informações"
 // contacto passa a contar como "morto"/parado na secção do Dashboard
 const DIAS_CONTACTO_PARADO = 21;
 
-function DashboardModule({ artists, spaces, partners, tasks, members, user }) {
+function DashboardModule({ artists, spaces, partners, tasks, members, user, soLeitura }) {
   const allContacts = useMemo(() => ([
     ...(artists || []).map((c) => ({ ...c, _tipo: "artista", _tipoLabel: "Artista" })),
     ...(spaces || []).map((c) => ({ ...c, _tipo: "espaco", _tipoLabel: "Espaço" })),
@@ -5635,7 +5758,9 @@ function DashboardModule({ artists, spaces, partners, tasks, members, user }) {
   // estatísticas individuais podem consultar). Para os líderes, este bloco fica escondido enquanto
   // não houver nenhum cartão de membro selecionado na secção "Equipa" — assim que clicam num cartão,
   // este passa a funcionar como um filtro e mostra apenas as estatísticas dessa pessoa.
-  const mostrarEstatisticasIndividuais = !isLider(user) || filterResp !== "Todos";
+  // O visitante não tem estatísticas próprias: as secções pessoais (as suas
+  // metas, medalhas e números individuais) não fazem sentido e ficam de fora.
+  const mostrarEstatisticasIndividuais = !soLeitura && (!isLider(user) || filterResp !== "Todos");
   // quando um cartão de membro está selecionado em "Equipa", as secções que mostram sempre dados
   // agregados de toda a equipa ("Visão geral", "Evolução", "Desempenho da equipa", "Tarefas da
   // equipa" e os avisos de contactos em risco/parados) ficam escondidas — só continua visível o
@@ -5950,7 +6075,8 @@ function DashboardModule({ artists, spaces, partners, tasks, members, user }) {
           <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>{mensagemIncentivo}</div>
         </div>
 
-        <div className="dash-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+        <div className="dash-grid-2" style={{ display: "grid", gridTemplateColumns: soLeitura ? "1fr" : "1fr 1fr", gap: 16, marginBottom: 16 }}>
+          {!soLeitura && (
           <div style={panelStyle}>
             <div style={{ display: "flex", alignItems: "center", gap: 7, fontWeight: 700, fontSize: 13.5, color: C.ink, marginBottom: 12 }}>
               <Target size={14} color={C.accent} /> Os teus objetivos desta semana
@@ -5976,6 +6102,7 @@ function DashboardModule({ artists, spaces, partners, tasks, members, user }) {
               </span>
             </div>
           </div>
+          )}
 
           <div style={panelStyle}>
             <div style={{ display: "flex", alignItems: "center", gap: 7, fontWeight: 700, fontSize: 13.5, color: C.ink, marginBottom: 12 }}>
@@ -6004,6 +6131,7 @@ function DashboardModule({ artists, spaces, partners, tasks, members, user }) {
           </div>
         </div>
 
+        {!soLeitura && (
         <div style={{ ...panelStyle, marginBottom: 8 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 7, fontWeight: 700, fontSize: 13.5, color: C.ink, marginBottom: 14 }}>
             <Award size={14} color={C.accent} /> As tuas medalhas
@@ -6027,6 +6155,7 @@ function DashboardModule({ artists, spaces, partners, tasks, members, user }) {
             })}
           </div>
         </div>
+        )}
       </div>
     </div>
   );

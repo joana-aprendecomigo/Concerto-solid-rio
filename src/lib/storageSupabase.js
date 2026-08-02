@@ -40,6 +40,13 @@ const TIPO_POR_CHAVE = {
 // Última versão lida de cada chave, para calcular diferenças na escrita.
 const cache = new Map();
 
+// Modo de leitura (visitante). Bloquear aqui, e não apenas escondendo botões,
+// garante que nenhum caminho esquecido no interface consegue gravar seja o que
+// for — incluindo as tarefas automáticas, que são criadas sem intervenção.
+let apenasLeitura = false;
+export const definirApenasLeitura = (v) => { apenasLeitura = Boolean(v); };
+export const estaApenasLeitura = () => apenasLeitura;
+
 // Momento da última gravação feita nesta sessão. O Realtime devolve também as
 // alterações que nós próprios fazemos; sem isto, gravar levava a aplicação a
 // recarregar-se e a voltar ao ecrã inicial a cada edição.
@@ -309,6 +316,11 @@ export function instalarStorageSupabase() {
     },
 
     async set(chave, valorJSON) {
+      // Em modo visitante nada é gravado. Devolve sucesso para não encher o
+      // ecrã de erros: quem está a consultar não fez nada de errado, e as
+      // tarefas automáticas continuariam a tentar gravar em segundo plano.
+      if (apenasLeitura) return true;
+
       const valor = JSON.parse(valorJSON);
       await guardar(chave, valor);
       cache.set(chave, valor);
