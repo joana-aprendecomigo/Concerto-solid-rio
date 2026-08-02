@@ -129,6 +129,23 @@ export async function membroComSessao() {
 }
 
 /**
+ * Dados de toda a equipa, indexados por nome.
+ *
+ * Os e-mails são assinados pelo responsável atribuído ao contacto, que pode
+ * não ser quem está a enviar — daí precisarmos dos dados de todos, e não só
+ * de quem tem sessão.
+ */
+export async function dadosDeTodosOsMembros() {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("nome, cargo, departamento");
+  if (error) throw error;
+  const porNome = {};
+  (data || []).forEach((m) => { porNome[m.nome] = m; });
+  return porNome;
+}
+
+/**
  * Dados de um membro para a assinatura dos e-mails (nome, cargo, departamento).
  */
 export async function dadosMembro(nome) {

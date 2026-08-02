@@ -3,7 +3,8 @@ import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { definirApenasLeitura, papelDoMembro, membrosCarregados } from "./lib/storageSupabase.js";
 import {
-  listarMembros, definirCodigo, entrar, sair, membroComSessao, mudarCodigo, dadosMembro, COMPRIMENTO_MINIMO,
+  listarMembros, definirCodigo, entrar, sair, membroComSessao, mudarCodigo, dadosMembro,
+  dadosDeTodosOsMembros, COMPRIMENTO_MINIMO,
 } from "./lib/auth.js";
 import {
   Music2, Users, Search, Plus, Pencil, Trash2, LogOut,
@@ -262,9 +263,9 @@ const TIPOS_CONTACTO = {
 };
 
 // substitui as variáveis {{...}} de um template pelos dados reais de um contacto (artista, espaço ou parceiro)
-// `remetente` são os dados de quem está a enviar (nome, cargo, departamento),
-// para a assinatura sair preenchida. Usa-se quem envia, e não o responsável
-// atribuído ao contacto, para ninguém assinar e-mails em nome de outra pessoa.
+// `remetente` são os dados de quem assina o e-mail (nome, cargo, departamento).
+// É o responsável atribuído ao contacto: o e-mail sai em nome de quem trata
+// daquele artista, mesmo que seja outra pessoa a carregar no botão.
 const aplicarVariaveisContacto = (assunto, corpo, contact, tipo, remetente) => {
   const tipoInfo = TIPOS_CONTACTO[tipo] || {};
   // normaliza uma chave de variável (minúsculas, sem acentos) para o preenchimento funcionar
@@ -294,10 +295,17 @@ const aplicarVariaveisContacto = (assunto, corpo, contact, tipo, remetente) => {
     assinatura,
   };
   if (tipoInfo.varKey) mapa[norm(tipoInfo.varKey)] = contact?.nome || "";
-  const substituir = (str) => (str || "").replace(/\{\{\s*([\wÀ-ÿ]+)\s*\}\}/g, (m, k) => {
-    const v = mapa[norm(k)];
-    return v !== undefined && v !== "" ? v : m;
-  });
+  // Nenhuma tag chega ao destinatário: as que não têm valor são removidas em
+  // vez de ficarem à vista. Antes, um contacto sem responsável atribuído (ou
+  // um responsável sem cargo preenchido) deixava "{{cargo}}" no meio do texto,
+  // e bastava um envio distraído para o e-mail sair assim.
+  const substituir = (str) => (str || "")
+    .replace(/\{\{\s*([\wÀ-ÿ]+)\s*\}\}/g, (m, k) => mapa[norm(k)] ?? "")
+    // Uma linha que ficou vazia por causa de uma tag removida não deve deixar
+    // um espaço em branco a meio do e-mail.
+    .replace(/(<br\s*\/?>\s*){3,}/gi, "<br><br>")
+    .replace(/\n{3,}/g, "\n\n");
+
   return { assunto: substituir(assunto), corpo: substituir(corpo) };
 };
 
@@ -715,6 +723,9 @@ export default function App() {
   // Cargo e departamento de quem tem sessão, para preencher a assinatura dos
   // e-mails sem obrigar a escrevê-los à mão em cada envio.
   const [remetente, setRemetente] = useState(null);
+  // Cargo e departamento de toda a equipa, indexados por nome: os e-mails são
+  // assinados pelo responsável do contacto, que pode não ser quem os envia.
+  const [dadosEquipa, setDadosEquipa] = useState({});
   // Modo visitante: consulta tudo, não altera nada. Guardado na sessão do
   // browser para sobreviver a recarregar a página e às remontagens da
   // sincronização, tal como acontece com o módulo escolhido.
@@ -816,6 +827,22 @@ export default function App() {
       else window.sessionStorage.removeItem("ymec_visitante");
     } catch {}
   }, [soLeitura, visitante]);
+
+  // Dados de toda a equipa, para preencher as assinaturas dos e-mails.
+  useEffect(() => {
+    if (!booted) return;
+    let cancelado = false;
+    (async () => {
+      try {
+        const d = await dadosDeTodosOsMembros();
+        if (!cancelado) setDadosEquipa(d);
+      } catch {
+        // Sem estes dados as assinaturas saem vazias, mas o resto funciona.
+        if (!cancelado) setDadosEquipa({});
+      }
+    })();
+    return () => { cancelado = true; };
+  }, [booted]);
 
   // Dados para a assinatura, recarregados sempre que muda quem está a usar.
   useEffect(() => {
@@ -1456,6 +1483,7 @@ export default function App() {
             onResposta={respostaHandlers}
             members={members}
             remetente={remetente}
+            dadosEquipa={dadosEquipa}
           />
         ) : module === "documentos" ? (
           <DocumentosModule
@@ -4980,7 +5008,7 @@ function TemplatePreviewModal({ template, onClose }) {
 /* ---------- tarefas module ---------- */
 function TarefasModule({
   tasks, persistTasks, user, showToast, onToggleTask, onSetTaskEstado,
-  templates, listByTipo, onResposta, members, remetente, soLeitura,
+  templates, listByTipo, onResposta, members, remetente, soLeitura, dadosEquipa,
 }) {
   const [modal, setModal] = useState(null); // 'add' | 'edit' | 'delete'
   const [editing, setEditing] = useState(null);
@@ -5225,6 +5253,7 @@ function TarefasModule({
           showToast={showToast}
           remetente={remetente}
           soLeitura={soLeitura}
+          dadosEquipa={dadosEquipa}
         />
       )}
     </div>
@@ -5413,14 +5442,22 @@ function DocumentoModal({ data, onClose, onSave, isNew }) {
    e permite indicar diretamente se houve resposta — sem precisar de abrir o contacto separadamente.
    É a mesma lógica (e os mesmos dados) da secção "Seguimento" do contacto, agora acessível a partir da
    própria tarefa, para o fluxo ficar sempre sincronizado entre tarefas, contactos e templates. */
-function AutoTaskModal({ task, templates, contact, onClose, onResposta, onSetTaskEstado, showToast, remetente, soLeitura }) {
+function AutoTaskModal({ task, templates, contact, onClose, onResposta, onSetTaskEstado, showToast, remetente, soLeitura, dadosEquipa }) {
   const [busy, setBusy] = useState(false);
   const origem = task.origem || {};
   const tipoInfo = TIPOS_CONTACTO[origem.tipo] || {};
   const fase = origem.evento === "followup" ? origem.fase : 1;
   const categoria = tipoInfo.categoriaTemplate;
   const tmpl = (templates || []).find((t) => t.categoria === categoria && Number(t.fase) === fase) || null;
-  const preview = tmpl ? aplicarVariaveisContacto(tmpl.assunto, tmpl.corpo, contact || {}, origem.tipo, remetente) : null;
+  // Quem assina é o responsável atribuído ao contacto. Sem responsável, usa-se
+  // quem está a enviar, para o e-mail não sair sem assinatura nenhuma.
+  const assina = (contact?.responsavel && dadosEquipa?.[contact.responsavel]) || remetente;
+  const preview = tmpl ? aplicarVariaveisContacto(tmpl.assunto, tmpl.corpo, contact || {}, origem.tipo, assina) : null;
+
+  // Faltando o cargo ou o departamento de quem assina, as frases do template
+  // ficam truncadas ("sou  no departamento de ."). Vale mais avisar do que
+  // deixar sair um e-mail assim para uma agência.
+  const assinaturaIncompleta = tmpl && (!assina?.nome || !assina?.cargo || !assina?.departamento);
 
   // a tarefa representa a fase atualmente ativa do seguimento deste contacto — só faz sentido
   // registar resposta enquanto isso for verdade (evita duplicar ações quando já existe um follow-up
@@ -5495,6 +5532,16 @@ function AutoTaskModal({ task, templates, contact, onClose, onResposta, onSetTas
             <div style={{ fontSize: 11.5, fontWeight: 600, color: C.inkSoft, letterSpacing: 0.3, marginBottom: 8, display: "flex", alignItems: "center", gap: 5 }}>
               <Mails size={12} /> TEMPLATE DE EMAIL DESTA FASE
             </div>
+            {assinaturaIncompleta && (
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", borderRadius: 9, background: C.amberBg, color: C.amber, fontSize: 12.5, fontWeight: 500, marginBottom: 12, lineHeight: 1.5 }}>
+                <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                <span>
+                  {!contact?.responsavel
+                    ? "Este contacto não tem responsável atribuído, por isso a assinatura fica incompleta. Atribui um responsável antes de enviar."
+                    : `Faltam dados de ${assina?.nome || contact.responsavel} (cargo ou departamento), por isso a assinatura fica incompleta.`}
+                </span>
+              </div>
+            )}
             {tmpl ? (
               <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, padding: "14px 16px", marginBottom: 18 }}>
                 <TemplatePreviewContent assunto={preview.assunto} corpo={preview.corpo} />
