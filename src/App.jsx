@@ -928,14 +928,6 @@ export default function App() {
   // corre a verificação automática do follow-up assim que a plataforma arranca, e depois periodicamente
   // (a cada 5 minutos) enquanto a app estiver aberta, para apanhar contactos cujo intervalo de espera
   // termina durante a sessão sem que seja preciso recarregar a página
-  useEffect(() => {
-    if (!booted) return;
-    runFollowupAutoScan();
-    const id = setInterval(() => runFollowupAutoScan(), 5 * 60 * 1000);
-    return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [booted, artists, spaces, partners, templates]);
-
   // Termina a sessão no Supabase, não apenas no ecrã: sem isto o token
   // continuava válido e bastava recarregar para voltar a entrar.
   const terminarSessao = async () => {
@@ -1221,6 +1213,23 @@ export default function App() {
       }
     }
   };
+
+  // Mantém a versão mais recente da função sem a tornar uma dependência do
+  // efeito: ela muda a cada render, e usá-la diretamente fazia o intervalo ser
+  // destruído e recriado sem parar.
+  const scanRef = useRef(runFollowupAutoScan);
+  scanRef.current = runFollowupAutoScan;
+
+  useEffect(() => {
+    if (!booted) return;
+    // O intervalo é criado uma única vez. Antes dependia das listas de
+    // contactos e dos templates, que mudam a cada gravação: o scan voltava a
+    // correr a cada alteração e, como ele próprio grava, realimentava-se.
+    scanRef.current();
+    const id = setInterval(() => scanRef.current(), 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [booted]);
+
 
   // adiciona uma nota à timeline de um contacto (artista, espaço ou parceiro)
   const addNotaContacto = async (tipo, contactId, texto) => {
