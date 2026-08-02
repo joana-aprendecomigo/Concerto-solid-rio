@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { definirApenasLeitura, papelDoMembro, membrosCarregados } from "./lib/storageSupabase.js";
 import {
@@ -1472,7 +1473,7 @@ export default function App() {
         <div style={{
           position: "fixed", bottom: 24, right: 24, background: toast.kind === "error" ? C.red : C.ink,
           color: "#fff", padding: "12px 18px", borderRadius: 10, fontSize: 13.5, fontWeight: 500,
-          boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 200, maxWidth: 320,
+          boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 300, maxWidth: 320,
         }}>
           {toast.msg}
         </div>
@@ -2083,10 +2084,13 @@ function Sidebar({ module, setModuleKey, user, onSair, showToast, flutuante, onF
         </button>
       </div>
 
-      {mudarCodigoAberto && !soLeitura && (
-        <ModalMudarCodigo nome={user} onFechar={() => setMudarCodigoAberto(false)} />
-      )}
     </div>
+
+    {/* Fora da barra lateral: lá dentro, o `overflow: hidden` e os 232px de
+        largura cortavam o modal e desalinhavam-no. */}
+    {mudarCodigoAberto && !soLeitura && (
+      <ModalMudarCodigo nome={user} onFechar={() => setMudarCodigoAberto(false)} />
+    )}
     </>
   );
 }
@@ -5615,12 +5619,16 @@ function ConfirmModal({ title, message, confirmLabel, onCancel, onConfirm, dange
 }
 
 function Overlay({ children, onClose, narrow, wide, xl }) {
-  return (
-    <div data-modal-aberto="true" onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,20,30,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20 }}>
+  // Renderizado no `body`, fora da árvore onde foi chamado. Um modal aberto a
+  // partir da barra lateral herdava o `overflow: hidden` e os 232px de largura
+  // dela, o que o cortava e desalinhava.
+  return createPortal(
+    <div data-modal-aberto="true" onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,20,30,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 20 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, borderRadius: 16, width: "100%", maxWidth: narrow ? 400 : xl ? 880 : wide ? 760 : 620, boxShadow: "0 20px 60px rgba(0,0,0,0.25)", fontFamily: "Inter, sans-serif" }}>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
