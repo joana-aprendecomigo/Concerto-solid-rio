@@ -98,9 +98,23 @@ async function lerDocumentos() {
   return (data || []).map(documentoDaBD);
 }
 
+// Papéis dos membros (nome → 'lider' | 'membro'), preenchidos ao ler a equipa.
+// Ficam à parte para `members` continuar a ser uma lista de nomes, que é o que
+// os seletores de responsável esperam.
+const papeis = new Map();
+export const papelDoMembro = (nome) => papeis.get(nome) || "membro";
+export const membrosCarregados = () => papeis.size > 0;
+
 async function lerMembros() {
-  const { data, error } = await supabase.from("profiles").select("nome").order("nome");
+  // É a base de dados que define quem é líder de equipa, e não uma lista fixa
+  // no código que se dessincronizava dos perfis reais.
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("nome, role")
+    .order("nome");
   if (error) throw error;
+  papeis.clear();
+  (data || []).forEach((r) => papeis.set(r.nome, r.role));
   return (data || []).map((r) => r.nome);
 }
 
@@ -280,17 +294,14 @@ async function guardarSimples(chave, tabela, novos, paraBD) {
   }
 }
 
-async function guardarMembros(novos) {
-  // `novos` é uma lista de nomes. Só acrescentamos: remover um membro é uma
-  // decisão de gestão de equipa, não um efeito lateral de alguém entrar.
-  const existentes = new Set(cache.get(CHAVES.MEMBROS) || []);
-  const aAdicionar = (novos || []).filter((n) => n && !existentes.has(n));
-  if (aAdicionar.length) {
-    const { error } = await supabase
-      .from("profiles")
-      .upsert(aAdicionar.map((nome) => ({ nome })), { onConflict: "nome" });
-    if (error) throw error;
-  }
+async function guardarMembros() {
+  // A composição da equipa deixou de ser gerida por aqui: os perfis vivem na
+  // base de dados e ligam-se a contas de autenticação quando cada pessoa
+  // define o seu código. Criar perfis a partir do interface entrava em
+  // conflito com esses registos e não tinha como preencher o `user_id`.
+  //
+  // Acrescentar ou remover membros faz-se no Supabase (ver as migrations),
+  // que é também onde se definem os líderes de equipa.
 }
 
 async function guardar(chave, valor) {

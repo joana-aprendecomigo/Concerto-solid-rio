@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import * as XLSX from "xlsx";
-import { definirApenasLeitura } from "./lib/storageSupabase.js";
+import { definirApenasLeitura, papelDoMembro, membrosCarregados } from "./lib/storageSupabase.js";
 import {
   listarMembros, definirCodigo, entrar, sair, membroComSessao, mudarCodigo, dadosMembro, COMPRIMENTO_MINIMO,
 } from "./lib/auth.js";
@@ -193,8 +193,15 @@ const EQUIPA = ["Maria Rita", "Tiago", "Ana", "Martim", "Sara", "Jonathan", "Lar
 // artistas/espaços/parceiros, criar ou editar/reatribuir tarefas, e consultar as estatísticas
 // individuais de todos os membros no Dashboard. Os restantes membros continuam a poder gerir
 // livremente apenas o trabalho que já lhes está atribuído.
+// Quem é líder vem da coluna `role` em profiles — é lá que se muda, sem
+// passar por um deploy. Esta lista serve apenas de recurso enquanto a equipa
+// ainda não foi carregada da base de dados.
 const LIDERES = ["Maria Rita", "Tiago", "Ana"];
-const isLider = (nome) => LIDERES.includes(nome);
+const isLider = (nome) => {
+  if (!nome) return false;
+  const papel = papelDoMembro(nome);
+  return papel === "lider" || (papel === "membro" && !membrosCarregados() && LIDERES.includes(nome));
+};
 
 // rótulos usados para gerar automaticamente as tarefas "Contactar X" a partir dos contactos
 const TASK_TIPOS = {
@@ -965,11 +972,15 @@ export default function App() {
     await gravar(KEY_DOCUMENTS, next);
   };
 
-  const registerMember = async (name) => {
+  // Mantém a lista de membros em memória atualizada.
+  //
+  // Já não cria perfis: desde que a entrada passou a ser por código, os
+  // perfis vêm da base de dados e são ligados a contas de autenticação. Tentar
+  // inseri-los daqui falhava com erro de nome duplicado e mostrava um aviso de
+  // gravação a quem apenas tinha entrado na plataforma.
+  const registerMember = (name) => {
     if (!name || members.includes(name)) return;
-    const next = [...members, name];
-    setMembers(next);
-    await gravar(KEY_MEMBERS, next);
+    setMembers((atuais) => (atuais.includes(name) ? atuais : [...atuais, name]));
   };
 
   // ---------- seguimento, follow-up automático, notas e conclusão de tarefas ----------
@@ -2256,7 +2267,7 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
           <span style={{ fontSize: 12.5, fontWeight: 600, color: C.ink }}>{selectedIds.length} artista{selectedIds.length > 1 ? "s" : ""} selecionado{selectedIds.length > 1 ? "s" : ""}</span>
           <select value={bulkResp} onChange={(e) => setBulkResp(e.target.value)} style={{ ...selectStyle, padding: "6px 10px", fontSize: 12.5, width: "auto" }}>
             <option value="">Atribuir a…</option>
-            {EQUIPA.map((m) => <option key={m} value={m}>{m}</option>)}
+            {(members?.length ? members : EQUIPA).map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
           <button type="button" disabled={!bulkResp} onClick={atribuirResponsavelEmMassa} style={{ ...btnPrimary, padding: "7px 12px", fontSize: 12.5, opacity: bulkResp ? 1 : 0.5, cursor: bulkResp ? "pointer" : "not-allowed" }}>
             <Users size={13} /> Atribuir responsável
@@ -2325,7 +2336,7 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
                         <ResponsavelSelect
                           contacto={a}
                           onChange={alterarResponsavelRapido}
-                          equipa={EQUIPA}
+                          equipa={members?.length ? members : EQUIPA}
                           podeEditar={!soLeitura && isLider(user)}
                         />
                       </td>
@@ -2909,7 +2920,7 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
           <span style={{ fontSize: 12.5, fontWeight: 600, color: C.ink }}>{selectedIds.length} espaço{selectedIds.length > 1 ? "s" : ""} selecionado{selectedIds.length > 1 ? "s" : ""}</span>
           <select value={bulkResp} onChange={(e) => setBulkResp(e.target.value)} style={{ ...selectStyle, padding: "6px 10px", fontSize: 12.5, width: "auto" }}>
             <option value="">Atribuir a…</option>
-            {EQUIPA.map((m) => <option key={m} value={m}>{m}</option>)}
+            {(members?.length ? members : EQUIPA).map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
           <button type="button" disabled={!bulkResp} onClick={atribuirResponsavelEmMassa} style={{ ...btnPrimary, padding: "7px 12px", fontSize: 12.5, opacity: bulkResp ? 1 : 0.5, cursor: bulkResp ? "pointer" : "not-allowed" }}>
             <Users size={13} /> Atribuir responsável
@@ -2981,7 +2992,7 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
                         <ResponsavelSelect
                           contacto={a}
                           onChange={alterarResponsavelRapido}
-                          equipa={EQUIPA}
+                          equipa={members?.length ? members : EQUIPA}
                           podeEditar={!soLeitura && isLider(user)}
                         />
                       </td>
@@ -3631,7 +3642,7 @@ function EspacoModal({ data, members, existingList, onClose, onSave, isNew, temp
               {isLider(user) ? (
                 <select style={selectStyle} value={form.responsavel} onChange={(e) => set("responsavel", e.target.value)}>
                   <option value="">Por atribuir</option>
-                  {EQUIPA.map((m) => <option key={m} value={m}>{m}</option>)}
+                  {(members?.length ? members : EQUIPA).map((m) => <option key={m} value={m}>{m}</option>)}
                 </select>
               ) : (
                 <div style={{ ...inputStyle, display: "flex", alignItems: "center", color: form.responsavel ? C.ink : C.gray, fontStyle: form.responsavel ? "normal" : "italic", background: C.grayBg }}>
@@ -3967,7 +3978,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
           <span style={{ fontSize: 12.5, fontWeight: 600, color: C.ink }}>{selectedIds.length} parceiro{selectedIds.length > 1 ? "s" : ""} selecionado{selectedIds.length > 1 ? "s" : ""}</span>
           <select value={bulkResp} onChange={(e) => setBulkResp(e.target.value)} style={{ ...selectStyle, padding: "6px 10px", fontSize: 12.5, width: "auto" }}>
             <option value="">Atribuir a…</option>
-            {EQUIPA.map((m) => <option key={m} value={m}>{m}</option>)}
+            {(members?.length ? members : EQUIPA).map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
           <button type="button" disabled={!bulkResp} onClick={atribuirResponsavelEmMassa} style={{ ...btnPrimary, padding: "7px 12px", fontSize: 12.5, opacity: bulkResp ? 1 : 0.5, cursor: bulkResp ? "pointer" : "not-allowed" }}>
             <Users size={13} /> Atribuir responsável
@@ -4042,7 +4053,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
                         <ResponsavelSelect
                           contacto={a}
                           onChange={alterarResponsavelRapido}
-                          equipa={EQUIPA}
+                          equipa={members?.length ? members : EQUIPA}
                           podeEditar={!soLeitura && isLider(user)}
                         />
                       </td>
@@ -4203,7 +4214,7 @@ function ParceiroModal({ data, members, existingList, onClose, onSave, isNew, te
               {isLider(user) ? (
                 <select style={selectStyle} value={form.responsavel} onChange={(e) => set("responsavel", e.target.value)}>
                   <option value="">Por atribuir</option>
-                  {EQUIPA.map((m) => <option key={m} value={m}>{m}</option>)}
+                  {(members?.length ? members : EQUIPA).map((m) => <option key={m} value={m}>{m}</option>)}
                 </select>
               ) : (
                 <div style={{ ...inputStyle, display: "flex", alignItems: "center", color: form.responsavel ? C.ink : C.gray, fontStyle: form.responsavel ? "normal" : "italic", background: C.grayBg }}>
@@ -4345,7 +4356,7 @@ function ArtistModal({ data, members, existingList, onClose, onSave, isNew, temp
               {isLider(user) ? (
                 <select style={selectStyle} value={form.responsavel} onChange={(e) => set("responsavel", e.target.value)}>
                   <option value="">Por atribuir</option>
-                  {EQUIPA.map((m) => <option key={m} value={m}>{m}</option>)}
+                  {(members?.length ? members : EQUIPA).map((m) => <option key={m} value={m}>{m}</option>)}
                 </select>
               ) : (
                 <div style={{ ...inputStyle, display: "flex", alignItems: "center", color: form.responsavel ? C.ink : C.gray, fontStyle: form.responsavel ? "normal" : "italic", background: C.grayBg }}>
@@ -5050,6 +5061,7 @@ function TarefasModule({
           onClose={() => { setModal(null); setEditing(null); }}
           onSave={saveTask}
           isNew={modal === "add"}
+          members={members}
         />
       )}
 
@@ -5398,7 +5410,7 @@ function AutoTaskModal({ task, templates, contact, onClose, onResposta, onSetTas
   );
 }
 
-function TaskModal({ data, onClose, onSave, isNew }) {
+function TaskModal({ data, onClose, onSave, isNew, members }) {
   const [form, setForm] = useState({ ...data });
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -5424,7 +5436,7 @@ function TaskModal({ data, onClose, onSave, isNew }) {
           <Field label="Responsável">
             <select style={selectStyle} value={form.responsavel} onChange={(e) => set("responsavel", e.target.value)}>
               <option value="">Por atribuir</option>
-              {EQUIPA.map((m) => <option key={m} value={m}>{m}</option>)}
+              {(members?.length ? members : EQUIPA).map((m) => <option key={m} value={m}>{m}</option>)}
             </select>
           </Field>
           <Field label="Prioridade">
