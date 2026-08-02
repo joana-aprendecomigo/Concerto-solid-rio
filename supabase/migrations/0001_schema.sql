@@ -12,6 +12,20 @@
 -- em `normNome` para detetar duplicados.
 create extension if not exists unaccent;
 
+-- O `unaccent` da extensão não é IMMUTABLE (o resultado depende do dicionário
+-- configurado), e o Postgres só aceita funções imutáveis em índices. Este
+-- wrapper fixa o dicionário, tornando o resultado determinístico e utilizável
+-- no índice de nomes duplicados mais abaixo.
+create or replace function nome_normalizado(texto text)
+returns text
+language sql
+immutable
+strict
+parallel safe
+as $$
+  select lower(public.unaccent('public.unaccent', texto));
+$$;
+
 -- ---------------------------------------------------------------------------
 -- Tipos enumerados: espelham as constantes que já existiam no código
 -- ---------------------------------------------------------------------------
@@ -136,7 +150,7 @@ create table contacts (
 -- Evita duplicados do mesmo nome dentro do mesmo tipo, ignorando maiúsculas e
 -- acentos — a mesma normalização que o código já fazia em `normNome`.
 create unique index contacts_nome_unico_por_tipo
-  on contacts (tipo, lower(unaccent(nome)));
+  on contacts (tipo, nome_normalizado(nome));
 
 create index contacts_tipo_idx on contacts (tipo);
 create index contacts_responsavel_idx on contacts (responsavel);

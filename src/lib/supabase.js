@@ -26,3 +26,21 @@ if (!supabaseConfigurado && typeof window !== "undefined") {
       "entre computadores."
   );
 }
+
+/**
+ * Confirma que a base de dados responde.
+ *
+ * Sem isto, uma credencial errada faria a aplicação recair em silêncio para o
+ * armazenamento local: a equipa via listas vazias (ou desatualizadas) sem
+ * perceber que estava desligada da base de dados partilhada.
+ */
+export async function verificarLigacao() {
+  if (!supabase) return { ok: false, motivo: "sem_credenciais" };
+  try {
+    const { error } = await supabase.from("profiles").select("nome").limit(1);
+    if (error) return { ok: false, motivo: "erro", detalhe: error.message };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, motivo: "erro", detalhe: e.message };
+  }
+}

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import App from "./App.jsx";
-import { supabaseConfigurado } from "./lib/supabase.js";
+import { supabaseConfigurado, verificarLigacao } from "./lib/supabase.js";
 import { ouvirAlteracoes } from "./lib/realtime.js";
 
 /**
@@ -18,7 +18,37 @@ import { ouvirAlteracoes } from "./lib/realtime.js";
  */
 export default function AppComRealtime() {
   const [versao, setVersao] = useState(0);
+  const [aviso, setAviso] = useState(null);
   const pendente = useRef(false);
+
+  // Confirma, no arranque, que a base de dados responde. Sem esta verificação
+  // uma credencial errada passaria despercebida: a aplicação funcionaria em
+  // modo local e a equipa veria listas vazias sem perceber a razão.
+  useEffect(() => {
+    let cancelado = false;
+    (async () => {
+      if (!supabaseConfigurado) {
+        if (!cancelado) {
+          setAviso(
+            "A funcionar em modo local: os dados ficam só neste computador e " +
+              "não são partilhados com a equipa."
+          );
+        }
+        return;
+      }
+      const r = await verificarLigacao();
+      if (!cancelado && !r.ok) {
+        setAviso(
+          "Não foi possível ligar à base de dados" +
+            (r.detalhe ? ` (${r.detalhe})` : "") +
+            ". As alterações podem não ficar guardadas."
+        );
+      }
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!supabaseConfigurado) return;
@@ -59,5 +89,50 @@ export default function AppComRealtime() {
     };
   }, []);
 
-  return <App key={versao} />;
+  return (
+    <>
+      {aviso && (
+        <div
+          role="status"
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 300,
+            background: "#FBF0DD",
+            color: "#8A5A12",
+            borderBottom: "1px solid #E8D5AE",
+            padding: "8px 16px",
+            fontSize: 12.5,
+            fontWeight: 600,
+            fontFamily: "Inter, sans-serif",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <span style={{ flex: 1 }}>{aviso}</span>
+          <button
+            type="button"
+            onClick={() => setAviso(null)}
+            aria-label="Fechar aviso"
+            style={{
+              border: "none",
+              background: "transparent",
+              color: "inherit",
+              cursor: "pointer",
+              fontWeight: 700,
+              fontSize: 15,
+              lineHeight: 1,
+              padding: 4,
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+      <App key={versao} />
+    </>
+  );
 }
