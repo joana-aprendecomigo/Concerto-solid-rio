@@ -31,10 +31,11 @@ if (typeof window !== "undefined") {
 export const supabase = supabaseConfigurado
   ? createClient(url, anonKey, {
       auth: {
-        // O acesso é por escolha de nome, sem contas: não há sessão para
-        // persistir nem token para renovar.
-        persistSession: false,
-        autoRefreshToken: false,
+        // A entrada é por nome + código, apoiada em contas do Supabase Auth.
+        // A sessão persiste para não obrigar a escrever o código a cada
+        // recarregamento, e o token renova-se sozinho durante o dia de trabalho.
+        persistSession: true,
+        autoRefreshToken: true,
       },
     })
   : null;

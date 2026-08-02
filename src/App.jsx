@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import * as XLSX from "xlsx";
 import {
+  listarMembros, definirCodigo, entrar, sair, membroComSessao, COMPRIMENTO_MINIMO,
+} from "./lib/auth.js";
+import {
   Music2, Users, Search, Plus, Pencil, Trash2, LogOut,
   Phone, Mail, Building2, Calendar, CheckCircle2, Clock, XCircle,
   HelpCircle, Sparkles, MapPin, Handshake, Mails, Send, Workflow,
@@ -669,12 +672,11 @@ export default function App() {
   // apareceria e desapareceria num piscar de olhos, o que incomoda mais do que
   // ajuda.
   const [mostrarEspera, setMostrarEspera] = useState(false);
-  // O utilizador e o módulo sobrevivem a uma remontagem (que acontece quando
-  // chegam alterações de outra pessoa) e a um F5 acidental — sem isto, cada
-  // sincronização atirava a pessoa de volta para o ecrã de entrada.
-  const [user, setUser] = useState(() => {
-    try { return window.sessionStorage.getItem("ymec_user") || null; } catch { return null; }
-  });
+  // Quem tem sessão iniciada. Vem do Supabase Auth (ver src/lib/auth.js), não
+  // de uma escolha guardada no browser: é isso que impede alguém de se fazer
+  // passar por outra pessoa.
+  const [user, setUser] = useState(null);
+  const [sessaoVerificada, setSessaoVerificada] = useState(false);
   const [members, setMembers] = useState([]);
   const [artists, setArtists] = useState(null);
   const [spaces, setSpaces] = useState(null);
@@ -745,14 +747,19 @@ export default function App() {
     return () => clearTimeout(t);
   }, []);
 
-  // Memoriza quem entrou e em que módulo está, para a escolha resistir às
-  // remontagens provocadas pela sincronização.
+  // Recupera a sessão iniciada (sobrevive a recarregar a página e às
+  // remontagens provocadas pela sincronização).
   useEffect(() => {
-    try {
-      if (user) window.sessionStorage.setItem("ymec_user", user);
-      else window.sessionStorage.removeItem("ymec_user");
-    } catch {}
-  }, [user]);
+    (async () => {
+      try {
+        setUser(await membroComSessao());
+      } catch {
+        setUser(null);
+      } finally {
+        setSessaoVerificada(true);
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     try { window.sessionStorage.setItem("ymec_module", module); } catch {}
@@ -826,6 +833,13 @@ export default function App() {
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [booted, artists, spaces, partners, templates]);
+
+  // Termina a sessão no Supabase, não apenas no ecrã: sem isto o token
+  // continuava válido e bastava recarregar para voltar a entrar.
+  const terminarSessao = async () => {
+    try { await sair(); } catch {}
+    setUser(null);
+  };
 
   const showToast = (msg, kind = "info") => {
     setToast({ msg, kind });
@@ -1176,6 +1190,17 @@ export default function App() {
     );
   }
 
+  // Enquanto não se sabe se há sessão, mostra o mesmo fundo do ecrã de entrada
+  // — sem isto, quem já tinha sessão via o ecrã de entrada a piscar antes de
+  // ser reconhecido.
+  if (!sessaoVerificada) {
+    return (
+      <div style={{ background: C.gradient, minHeight: "100vh" }}>
+        <style>{FONTS}</style>
+      </div>
+    );
+  }
+
   if (!user) {
     return (
       <div style={{ position: "relative", background: C.gradient, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif", padding: 24, overflow: "hidden" }}>
@@ -1213,24 +1238,7 @@ export default function App() {
           </div>
 
           <div style={{ background: "rgba(15,23,43,0.55)", backdropFilter: "blur(10px)", borderRadius: 20, padding: 32, border: "1px solid rgba(255,255,255,0.12)", boxShadow: "0 24px 60px rgba(10,10,30,0.35)" }}>
-            <div style={{ color: "rgba(255,255,255,0.65)", fontSize: 13.5, marginBottom: 22, lineHeight: 1.5 }}>
-              Escolhe o teu nome na equipa para entrares na plataforma de gestão de relações externas. É esta escolha que associa as tuas tarefas na secção "Tarefas".
-            </div>
-            <div style={{ color: "rgba(255,255,255,0.45)", fontSize: 11.5, fontWeight: 600, letterSpacing: 0.5, marginBottom: 12 }}>MEMBROS DA EQUIPA</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {EQUIPA.map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => { setUser(m); registerMember(m); }}
-                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 13px", borderRadius: 999, border: "1px solid rgba(255,255,255,0.16)", background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.9)", fontSize: 13, cursor: "pointer", fontFamily: "Inter, sans-serif", fontWeight: 500, transition: "background .15s ease, border-color .15s ease" }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(230,23,140,0.18)"; e.currentTarget.style.borderColor = "rgba(230,23,140,0.4)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.07)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.16)"; }}
-                >
-                  <UserCircle2 size={14} /> {m}
-                </button>
-              ))}
-            </div>
+            <EcraEntrada onEntrou={(nome) => { setUser(nome); registerMember(nome); }} />
           </div>
         </div>
       </div>
@@ -1270,7 +1278,7 @@ export default function App() {
           module={module}
           setModuleKey={(k) => { setModuleKey(k); setMenuAberto(false); }}
           user={user}
-          setUser={setUser}
+          onSair={terminarSessao}
           showToast={showToast}
           flutuante={ecraEstreito}
           onFechar={() => setMenuAberto(false)}
@@ -1377,10 +1385,174 @@ export default function App() {
   );
 }
 
+/* ---------- entrada com nome + código ---------- */
+// Cada pessoa escolhe o seu nome e define um código na primeira entrada. Por
+// trás é uma conta no Supabase Auth (ver src/lib/auth.js), mas a equipa nunca
+// vê e-mails: para elas é só escolher o nome e escrever o código.
+function EcraEntrada({ onEntrou }) {
+  const [membros, setMembros] = useState(null);
+  const [nome, setNome] = useState(null);
+  const [codigo, setCodigo] = useState("");
+  const [confirmacao, setConfirmacao] = useState("");
+  const [erro, setErro] = useState("");
+  const [ocupado, setOcupado] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        setMembros(await listarMembros());
+      } catch (e) {
+        setErro("Não foi possível carregar a equipa. Verifica a ligação.");
+        setMembros([]);
+      }
+    })();
+  }, []);
+
+  const selecionado = membros?.find((m) => m.nome === nome) || null;
+  const primeiraVez = selecionado && !selecionado.codigo_definido_em;
+
+  const submeter = async (e) => {
+    e.preventDefault();
+    setErro("");
+
+    if (primeiraVez) {
+      if (codigo.length < COMPRIMENTO_MINIMO) {
+        setErro(`O código tem de ter pelo menos ${COMPRIMENTO_MINIMO} caracteres.`);
+        return;
+      }
+      if (codigo !== confirmacao) {
+        setErro("Os códigos não coincidem.");
+        return;
+      }
+    }
+
+    setOcupado(true);
+    try {
+      if (primeiraVez) {
+        await definirCodigo(nome, codigo);
+        await entrar(nome, codigo);
+      } else {
+        await entrar(nome, codigo);
+      }
+      onEntrou(nome);
+    } catch (err) {
+      setErro(err.message || "Não foi possível entrar.");
+    } finally {
+      setOcupado(false);
+    }
+  };
+
+  const estiloCampo = {
+    width: "100%", boxSizing: "border-box", padding: "10px 13px", borderRadius: 10,
+    border: "1px solid rgba(255,255,255,0.18)", background: "rgba(255,255,255,0.07)",
+    color: "#fff", fontSize: 13.5, fontFamily: "Inter, sans-serif", outline: "none",
+  };
+
+  if (membros === null) {
+    return <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 13.5 }}>A carregar a equipa…</div>;
+  }
+
+  // Passo 1 — escolher o nome
+  if (!nome) {
+    return (
+      <>
+        <div style={{ color: "rgba(255,255,255,0.65)", fontSize: 13.5, marginBottom: 22, lineHeight: 1.5 }}>
+          Escolhe o teu nome na equipa. Na primeira entrada defines um código só teu; das próximas vezes usas esse código para entrar.
+        </div>
+        <div style={{ color: "rgba(255,255,255,0.45)", fontSize: 11.5, fontWeight: 600, letterSpacing: 0.5, marginBottom: 12 }}>MEMBROS DA EQUIPA</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {membros.map((m) => (
+            <button
+              key={m.nome}
+              type="button"
+              onClick={() => { setNome(m.nome); setCodigo(""); setConfirmacao(""); setErro(""); }}
+              style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 13px", borderRadius: 999, border: "1px solid rgba(255,255,255,0.16)", background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.9)", fontSize: 13, cursor: "pointer", fontFamily: "Inter, sans-serif", fontWeight: 500, transition: "background .15s ease, border-color .15s ease" }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(230,23,140,0.18)"; e.currentTarget.style.borderColor = "rgba(230,23,140,0.4)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.07)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.16)"; }}
+            >
+              <UserCircle2 size={14} /> {m.nome}
+              {!m.codigo_definido_em && (
+                <span style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 999, background: "rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.7)" }}>novo</span>
+              )}
+            </button>
+          ))}
+        </div>
+        {erro && <div style={{ marginTop: 14, color: "#FFB4C0", fontSize: 12.5 }}>{erro}</div>}
+      </>
+    );
+  }
+
+  // Passo 2 — definir ou escrever o código
+  return (
+    <form onSubmit={submeter}>
+      <button
+        type="button"
+        onClick={() => { setNome(null); setCodigo(""); setConfirmacao(""); setErro(""); }}
+        style={{ background: "transparent", border: "none", color: "rgba(255,255,255,0.5)", fontSize: 12.5, cursor: "pointer", padding: 0, marginBottom: 16, fontFamily: "Inter, sans-serif" }}
+      >
+        ← escolher outro nome
+      </button>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
+        <div style={{ width: 34, height: 34, borderRadius: 999, background: "rgba(230,23,140,0.25)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#fff" }}>
+          {nome.slice(0, 1).toUpperCase()}
+        </div>
+        <div style={{ color: "#fff", fontWeight: 600, fontSize: 15 }}>{nome}</div>
+      </div>
+
+      <div style={{ color: "rgba(255,255,255,0.65)", fontSize: 13, marginBottom: 16, lineHeight: 1.5 }}>
+        {primeiraVez
+          ? `Define o teu código de acesso. Guarda-o — é com ele que entras a partir de agora, e mais ninguém o conhece.`
+          : "Escreve o teu código de acesso."}
+      </div>
+
+      <input
+        type="password"
+        autoFocus
+        value={codigo}
+        onChange={(e) => setCodigo(e.target.value)}
+        placeholder={primeiraVez ? `Novo código (mín. ${COMPRIMENTO_MINIMO} caracteres)` : "Código"}
+        style={estiloCampo}
+      />
+
+      {primeiraVez && (
+        <input
+          type="password"
+          value={confirmacao}
+          onChange={(e) => setConfirmacao(e.target.value)}
+          placeholder="Repete o código"
+          style={{ ...estiloCampo, marginTop: 10 }}
+        />
+      )}
+
+      {erro && <div style={{ marginTop: 12, color: "#FFB4C0", fontSize: 12.5 }}>{erro}</div>}
+
+      <button
+        type="submit"
+        disabled={ocupado || !codigo}
+        style={{
+          width: "100%", marginTop: 16, padding: "11px 16px", borderRadius: 10, border: "none",
+          background: C.accent, color: "#fff", fontWeight: 600, fontSize: 14,
+          cursor: ocupado || !codigo ? "not-allowed" : "pointer",
+          opacity: ocupado || !codigo ? 0.5 : 1, fontFamily: "Inter, sans-serif",
+        }}
+      >
+        {ocupado ? "A entrar…" : primeiraVez ? "Definir código e entrar" : "Entrar"}
+      </button>
+
+      {!primeiraVez && (
+        <div style={{ marginTop: 14, color: "rgba(255,255,255,0.4)", fontSize: 11.5, lineHeight: 1.5 }}>
+          Esqueceste-te do código? Pede a quem gere a plataforma para o repor.
+        </div>
+      )}
+    </form>
+  );
+}
+
 /* ---------- sidebar ---------- */
 // `flutuante` = ecrã estreito: o menu abre por cima do conteúdo em vez de
 // ocupar uma coluna permanente, que num telemóvel comeria metade da largura.
-function Sidebar({ module, setModuleKey, user, setUser, showToast, flutuante, onFechar }) {
+function Sidebar({ module, setModuleKey, user, onSair, showToast, flutuante, onFechar }) {
   return (
     <>
       {flutuante && (
@@ -1441,7 +1613,7 @@ function Sidebar({ module, setModuleKey, user, setUser, showToast, flutuante, on
           {user.slice(0, 1).toUpperCase()}
         </div>
         <div style={{ fontSize: 13, fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user}</div>
-        <button onClick={() => setUser(null)} title="Sair" style={{ background: "transparent", border: "none", color: "rgba(255,255,255,0.4)", cursor: "pointer", padding: 4 }}>
+        <button onClick={onSair} title="Sair" style={{ background: "transparent", border: "none", color: "rgba(255,255,255,0.4)", cursor: "pointer", padding: 4 }}>
           <LogOut size={15} />
         </button>
       </div>

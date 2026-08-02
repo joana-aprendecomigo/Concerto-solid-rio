@@ -2,17 +2,15 @@
 -- Row Level Security — versão restrita (para quando houver autenticação)
 -- ============================================================================
 --
--- NÃO APLICAR AINDA. Este ficheiro termina em `.disabled` de propósito: se for
--- aplicado enquanto o login for só a escolha de um nome, ninguém consegue ler
--- nem escrever nada (todos os pedidos chegam como `anon`, sem identidade) e a
--- plataforma deixa de funcionar.
+-- APLICAR DEPOIS DE 0008 e depois de toda a equipa ter definido o seu código.
 --
--- Como ativar, quando houver contas a sério:
---   1. Criar utilizadores em Authentication → Users no Supabase.
---   2. Ligar cada um ao seu perfil:
---        update profiles set user_id = '<uuid do utilizador>' where nome = 'Ana';
---   3. Confirmar que os líderes têm role = 'lider'.
---   4. Remover o sufixo `.disabled` e correr esta migration.
+-- A partir daqui, quem não tiver sessão iniciada não lê nem escreve nada. Se
+-- correr esta migration antes de as pessoas definirem código, elas ficam sem
+-- acesso — mas basta definirem o código no ecrã de entrada para voltarem a
+-- entrar, porque a criação de conta não depende destas políticas.
+--
+-- A leitura da lista de nomes no ecrã de entrada continua a funcionar sem
+-- sessão: há uma política explícita para isso na secção `profiles`.
 --
 -- Regras codificadas aqui (as mesmas que o interface já aplica):
 --   · Toda a equipa autenticada lê tudo — é uma ferramenta colaborativa.
@@ -37,6 +35,12 @@ drop policy if exists aberto_documents      on documents;
 
 create policy profiles_leitura on profiles
   for select to authenticated using (true);
+
+-- O ecrã de entrada mostra a lista de nomes antes de haver sessão, e precisa
+-- de saber quem já definiu código. Só estas colunas ficam acessíveis sem
+-- sessão — não há aqui nada sensível, e o código vive no Supabase Auth.
+create policy profiles_leitura_entrada on profiles
+  for select to anon using (true);
 
 -- Só líderes mexem na composição da equipa e nos papéis.
 create policy profiles_gestao_lideres on profiles
