@@ -74,6 +74,11 @@ const FONTS = `
   .dash-grid-5, .dash-grid-3 { grid-template-columns: 1fr !important; }
 }
 
+/* O nome abre a ficha do contacto — sublinha ao passar o rato para se perceber
+   que é clicável. */
+.nome-clicavel:hover { text-decoration: underline; text-underline-offset: 2px; }
+.nome-clicavel:focus-visible { outline: 2px solid #9AA6FF; outline-offset: 2px; border-radius: 4px; }
+
 /* As tabelas já deslizam na horizontal; este toque evita que o dedo arraste a
    página inteira enquanto se percorre uma tabela larga. */
 @media (max-width: 859px) {
@@ -125,10 +130,9 @@ const followUpHoje = (c) => {
 };
 
 const SORT_OPTIONS = [
-  { v: "padrao", label: "Ordenar: predefinição" },
+  { v: "nome", label: "Nome (A–Z)" },
   { v: "proximaAcao", label: "Próxima ação (mais urgente primeiro)" },
   { v: "ultimoContacto", label: "Último contacto (mais recente primeiro)" },
-  { v: "nome", label: "Nome (A–Z)" },
 ];
 
 // aplica a ordenação escolhida a uma lista de contactos (artistas, espaços ou parceiros),
@@ -1459,7 +1463,7 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
   const [filterEstado, setFilterEstado] = useState("Todos");
   const [filterResp, setFilterResp] = useState("Todos");
   const [filterCard, setFilterCard] = useState(null); // null | 'contactados' | 'responderam' | 'naoResponderam'
-  const [sortBy, setSortBy] = useState("padrao");
+  const [sortBy, setSortBy] = useState("nome");
   const [modal, setModal] = useState(null); // 'add' | 'edit' | 'delete' | 'import'
   const [editing, setEditing] = useState(null);
   const [toDelete, setToDelete] = useState(null);
@@ -1512,6 +1516,23 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
   // clique num cartão de indicador: filtra a lista por esse estado; clicar novamente no mesmo
   // cartão remove o filtro e volta a mostrar todos os contactos
   const toggleFilterCard = (key) => setFilterCard((f) => (f === key ? null : key));
+
+  // Altera o estado a partir da lista, sem abrir a ficha. Faz exatamente o que
+  // o separador "Dados" faz: regista o evento na timeline e, se o contacto
+  // deixou de estar "Por contactar", conclui a tarefa de primeiro contacto.
+  const alterarEstadoRapido = async (contacto, novoEstado) => {
+    if (contacto.estado === novoEstado) return;
+    const evento = { id: uid(), tipo: "estado", data: new Date().toISOString(), user, de: contacto.estado, para: novoEstado };
+    const atualizado = {
+      ...contacto,
+      estado: novoEstado,
+      historico: [evento, ...(contacto.historico || [])],
+      atualizadoPor: user,
+    };
+    await persistArtists(list.map((x) => (x.id === contacto.id ? atualizado : x)));
+    if (novoEstado !== "Por contactar") await onConcluirTarefaContacto?.(contacto.id);
+    showToast(`${contacto.nome}: estado alterado para "${novoEstado}".`);
+  };
 
   const saveArtist = async (data) => {
     // a mudança de estado já fica registada na timeline em tempo real, assim que é feita no
@@ -1729,7 +1750,15 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top", color: C.inkSoft, fontSize: 12.5, fontWeight: 600 }}>{idx + 1}</td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
-                        <div style={{ fontWeight: 600, color: C.ink, display: "flex", alignItems: "center", gap: 6 }}>
+                        <div
+                          onClick={() => { setEditing(a); setModal("edit"); }}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setEditing(a); setModal("edit"); } }}
+                          title="Abrir ficha"
+                          className="nome-clicavel"
+                          style={{ fontWeight: 600, color: C.ink, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+                        >
                           {a.nome}
                           {atrasado && <AlertTriangle size={13} color={C.red} title="Seguimento em atraso" />}
                         </div>
@@ -1748,9 +1777,7 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
                         )}
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 9px", borderRadius: 999, background: info.bg, color: info.color, fontSize: 11.5, fontWeight: 600, whiteSpace: "nowrap" }}>
-                          <EIcon size={11} /> {a.estado}
-                        </span>
+                        <EstadoSelect contacto={a} onChange={alterarEstadoRapido} />
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top", color: C.inkSoft, fontSize: 12.5, whiteSpace: "nowrap" }}>{a.dataUltimoContacto || "—"}</td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top", fontSize: 12.5, whiteSpace: "nowrap" }}>
@@ -1822,6 +1849,45 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
   );
 }
 
+// Etiqueta de estado que também permite mudá-lo sem abrir a ficha.
+//
+// Mantém o aspeto da etiqueta colorida, mas por baixo tem um <select> invisível
+// que cobre a área toda: mudar o estado de um contacto é a ação mais frequente
+// da equipa e obrigava a abrir a ficha, alterar e guardar.
+//
+// A alteração passa pelo mesmo caminho da ficha (regista o evento na timeline e
+// conclui a tarefa de primeiro contacto), para as duas vistas não divergirem.
+function EstadoSelect({ contacto, onChange, disabled }) {
+  const info = estadoInfo(contacto.estado);
+  const EIcon = info.icon;
+  return (
+    <div style={{ position: "relative", display: "inline-flex" }}>
+      <span style={{
+        display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 9px", borderRadius: 999,
+        background: info.bg, color: info.color, fontSize: 11.5, fontWeight: 600, whiteSpace: "nowrap",
+        cursor: disabled ? "default" : "pointer",
+      }}>
+        <EIcon size={11} /> {contacto.estado}
+        {!disabled && <ChevronRight size={10} style={{ transform: "rotate(90deg)", opacity: 0.6 }} />}
+      </span>
+      {!disabled && (
+        <select
+          value={contacto.estado}
+          onChange={(e) => onChange(contacto, e.target.value)}
+          aria-label={`Estado de ${contacto.nome}`}
+          title="Alterar estado"
+          style={{
+            position: "absolute", inset: 0, width: "100%", height: "100%",
+            opacity: 0, cursor: "pointer", border: "none", appearance: "none",
+          }}
+        >
+          {ESTADOS.map((e) => <option key={e.v} value={e.v}>{e.v}</option>)}
+        </select>
+      )}
+    </div>
+  );
+}
+
 // checkbox simples usado na seleção em massa das listas de contactos (Artistas, Espaços, Parceiros) —
 // mantém a linguagem visual da plataforma, reutilizando os ícones Square / CheckSquare já importados
 function CheckboxToggle({ checked, onChange, title }) {
@@ -1879,7 +1945,7 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
   const [filterEstado, setFilterEstado] = useState("Todos");
   const [filterResp, setFilterResp] = useState("Todos");
   const [filterCard, setFilterCard] = useState(null); // null | 'contactados' | 'responderam' | 'naoResponderam'
-  const [sortBy, setSortBy] = useState("padrao");
+  const [sortBy, setSortBy] = useState("nome");
   const [modal, setModal] = useState(null); // 'add' | 'edit' | 'delete' | 'import'
   const [editing, setEditing] = useState(null);
   const [toDelete, setToDelete] = useState(null);
@@ -1930,6 +1996,23 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
   }, [list]);
 
   const toggleFilterCard = (key) => setFilterCard((f) => (f === key ? null : key));
+
+  // Altera o estado a partir da lista, sem abrir a ficha. Faz exatamente o que
+  // o separador "Dados" faz: regista o evento na timeline e, se o contacto
+  // deixou de estar "Por contactar", conclui a tarefa de primeiro contacto.
+  const alterarEstadoRapido = async (contacto, novoEstado) => {
+    if (contacto.estado === novoEstado) return;
+    const evento = { id: uid(), tipo: "estado", data: new Date().toISOString(), user, de: contacto.estado, para: novoEstado };
+    const atualizado = {
+      ...contacto,
+      estado: novoEstado,
+      historico: [evento, ...(contacto.historico || [])],
+      atualizadoPor: user,
+    };
+    await persistSpaces(list.map((x) => (x.id === contacto.id ? atualizado : x)));
+    if (novoEstado !== "Por contactar") await onConcluirTarefaContacto?.(contacto.id);
+    showToast(`${contacto.nome}: estado alterado para "${novoEstado}".`);
+  };
 
   const saveSpace = async (data) => {
     // a mudança de estado já fica registada na timeline em tempo real, assim que é feita no
@@ -2148,7 +2231,15 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top", color: C.inkSoft, fontSize: 12.5, fontWeight: 600 }}>{idx + 1}</td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
-                        <div style={{ fontWeight: 600, color: C.ink, display: "flex", alignItems: "center", gap: 6 }}>
+                        <div
+                          onClick={() => { setEditing(a); setModal("edit"); }}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setEditing(a); setModal("edit"); } }}
+                          title="Abrir ficha"
+                          className="nome-clicavel"
+                          style={{ fontWeight: 600, color: C.ink, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+                        >
                           {a.nome}
                           {atrasado && <AlertTriangle size={13} color={C.red} title="Seguimento em atraso" />}
                         </div>
@@ -2170,9 +2261,7 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
                         )}
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 9px", borderRadius: 999, background: info.bg, color: info.color, fontSize: 11.5, fontWeight: 600, whiteSpace: "nowrap" }}>
-                          <EIcon size={11} /> {a.estado}
-                        </span>
+                        <EstadoSelect contacto={a} onChange={alterarEstadoRapido} />
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top", color: C.inkSoft, fontSize: 12.5, whiteSpace: "nowrap" }}>{a.dataUltimoContacto || "—"}</td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top", fontSize: 12.5, whiteSpace: "nowrap" }}>
@@ -2863,7 +2952,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
   const [filterEstado, setFilterEstado] = useState("Todos");
   const [filterResp, setFilterResp] = useState("Todos");
   const [filterCard, setFilterCard] = useState(null); // null | 'contactados' | 'responderam' | 'naoResponderam'
-  const [sortBy, setSortBy] = useState("padrao");
+  const [sortBy, setSortBy] = useState("nome");
   const [modal, setModal] = useState(null); // 'add' | 'edit' | 'delete' | 'import'
   const [editing, setEditing] = useState(null);
   const [toDelete, setToDelete] = useState(null);
@@ -2915,6 +3004,23 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
   }, [list]);
 
   const toggleFilterCard = (key) => setFilterCard((f) => (f === key ? null : key));
+
+  // Altera o estado a partir da lista, sem abrir a ficha. Faz exatamente o que
+  // o separador "Dados" faz: regista o evento na timeline e, se o contacto
+  // deixou de estar "Por contactar", conclui a tarefa de primeiro contacto.
+  const alterarEstadoRapido = async (contacto, novoEstado) => {
+    if (contacto.estado === novoEstado) return;
+    const evento = { id: uid(), tipo: "estado", data: new Date().toISOString(), user, de: contacto.estado, para: novoEstado };
+    const atualizado = {
+      ...contacto,
+      estado: novoEstado,
+      historico: [evento, ...(contacto.historico || [])],
+      atualizadoPor: user,
+    };
+    await persistPartners(list.map((x) => (x.id === contacto.id ? atualizado : x)));
+    if (novoEstado !== "Por contactar") await onConcluirTarefaContacto?.(contacto.id);
+    showToast(`${contacto.nome}: estado alterado para "${novoEstado}".`);
+  };
 
   const savePartner = async (data) => {
     // a mudança de estado já fica registada na timeline em tempo real, assim que é feita no
@@ -3117,7 +3223,15 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
                         )}
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
-                        <div style={{ fontWeight: 600, color: C.ink, display: "flex", alignItems: "center", gap: 6 }}>
+                        <div
+                          onClick={() => { setEditing(a); setModal("edit"); }}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setEditing(a); setModal("edit"); } }}
+                          title="Abrir ficha"
+                          className="nome-clicavel"
+                          style={{ fontWeight: 600, color: C.ink, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+                        >
                           {a.nome}
                           {atrasado && <AlertTriangle size={13} color={C.red} title="Seguimento em atraso" />}
                         </div>
@@ -3141,9 +3255,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
                         )}
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 9px", borderRadius: 999, background: info.bg, color: info.color, fontSize: 11.5, fontWeight: 600, whiteSpace: "nowrap" }}>
-                          <EIcon size={11} /> {a.estado}
-                        </span>
+                        <EstadoSelect contacto={a} onChange={alterarEstadoRapido} />
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top", color: C.inkSoft, fontSize: 12.5, whiteSpace: "nowrap" }}>{a.dataUltimoContacto || "—"}</td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top", fontSize: 12.5, whiteSpace: "nowrap" }}>
