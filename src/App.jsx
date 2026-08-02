@@ -1564,10 +1564,12 @@ function Sidebar({ module, setModuleKey, user, onSair, showToast, flutuante, onF
     <div style={{
       width: 232, background: C.sidebar, color: "#fff", display: "flex", flexDirection: "column",
       padding: "24px 16px", flexShrink: 0, borderRadius: "0",
-      // fica sempre visível (nome + botão "Sair" nunca ficam escondidos, mesmo com listas compridas
-      // que tornem a página principal mais alta do que o ecrã)
       position: flutuante ? "fixed" : "sticky",
-      top: 0, left: 0, height: "100vh", overflowY: "auto",
+      top: 0, left: 0, height: "100vh",
+      // A barra em si não rola — só a lista de módulos, mais abaixo. Assim o
+      // nome e o botão "Sair" ficam sempre à vista, em vez de serem empurrados
+      // para fora do ecrã quando há módulos a mais.
+      overflow: "hidden",
       zIndex: flutuante ? 96 : undefined,
       boxShadow: flutuante ? "4px 0 24px rgba(0,0,0,0.3)" : undefined,
     }}>
@@ -1583,7 +1585,9 @@ function Sidebar({ module, setModuleKey, user, onSair, showToast, flutuante, onF
       </div>
 
       <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: 0.5, color: "rgba(255,255,255,0.35)", padding: "0 8px", marginBottom: 8 }}>MÓDULOS</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      {/* A única zona que rola. `minHeight: 0` é necessário para que um filho
+          de um contentor flex possa encolher abaixo do seu conteúdo. */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 3, overflowY: "auto", flex: 1, minHeight: 0 }}>
         {MODULES.map((m) => {
           const Icon = m.icon;
           const isActive = module === m.key;
@@ -1607,14 +1611,25 @@ function Sidebar({ module, setModuleKey, user, onSair, showToast, flutuante, onF
         })}
       </div>
 
-      <div style={{ flex: 1 }} />
-      <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 14, display: "flex", alignItems: "center", gap: 8, padding: "14px 8px 4px" }}>
+      {/* Rodapé sempre visível: é a lista de módulos que rola, não a barra. */}
+      <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", gap: 8, padding: "14px 8px 4px", flexShrink: 0 }}>
         <div style={{ width: 28, height: 28, borderRadius: 999, background: "rgba(255,255,255,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12.5, fontWeight: 700, flexShrink: 0 }}>
           {user.slice(0, 1).toUpperCase()}
         </div>
         <div style={{ fontSize: 13, fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user}</div>
-        <button onClick={onSair} title="Sair" style={{ background: "transparent", border: "none", color: "rgba(255,255,255,0.4)", cursor: "pointer", padding: 4 }}>
-          <LogOut size={15} />
+        {/* Com texto, e não só o ícone: um símbolo sozinho não se lê como
+            "terminar sessão", sobretudo agora que há códigos de acesso. */}
+        <button
+          onClick={onSair}
+          title="Terminar sessão"
+          style={{
+            display: "flex", alignItems: "center", gap: 5, background: "rgba(255,255,255,0.08)",
+            border: "1px solid rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.75)",
+            cursor: "pointer", padding: "5px 9px", borderRadius: 8, fontSize: 11.5,
+            fontWeight: 600, fontFamily: "Inter, sans-serif", flexShrink: 0,
+          }}
+        >
+          <LogOut size={13} /> Sair
         </button>
       </div>
     </div>
