@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import * as XLSX from "xlsx";
 import {
-  listarMembros, definirCodigo, entrar, sair, membroComSessao, mudarCodigo, COMPRIMENTO_MINIMO,
+  listarMembros, definirCodigo, entrar, sair, membroComSessao, mudarCodigo, dadosMembro, COMPRIMENTO_MINIMO,
 } from "./lib/auth.js";
 import {
   Music2, Users, Search, Plus, Pencil, Trash2, LogOut,
@@ -223,11 +223,18 @@ const categoriaTemplateInfo = (v) => CATEGORIAS_TEMPLATES.find((c) => c.v === v)
 
 // variáveis dinâmicas suportadas nos templates de email, com um valor de exemplo para a pré-visualização
 const VARIAVEIS_TEMPLATE = [
+  // Dados do destinatário
   { key: "nome", label: "Nome", exemplo: "Maria Silva" },
   { key: "email", label: "Email", exemplo: "maria.silva@email.com" },
   { key: "responsavel", label: "Responsável", exemplo: "Beatriz Costa" },
   { key: "artista", label: "Artista", exemplo: "Nome do Artista" },
   { key: "espaco", label: "Espaço", exemplo: "Nome do Espaço" },
+  // Dados de quem envia — preenchidos com o perfil de quem tem sessão, para a
+  // assinatura não ter de ser escrita à mão em cada e-mail.
+  { key: "meunome", label: "O meu nome", exemplo: "Ana" },
+  { key: "cargo", label: "O meu cargo", exemplo: "Junior Consultant" },
+  { key: "departamento", label: "O meu departamento", exemplo: "Human Resources" },
+  { key: "assinatura", label: "Assinatura completa", exemplo: "Ana<br>Junior Consultant de Human Resources<br>Young Minho Enterprise" },
 ];
 // substitui {{variavel}} pelos valores de exemplo, para a pré-visualização
 const aplicarVariaveis = (assunto, corpo) => {
@@ -246,17 +253,36 @@ const TIPOS_CONTACTO = {
 };
 
 // substitui as variáveis {{...}} de um template pelos dados reais de um contacto (artista, espaço ou parceiro)
-const aplicarVariaveisContacto = (assunto, corpo, contact, tipo) => {
+// `remetente` são os dados de quem está a enviar (nome, cargo, departamento),
+// para a assinatura sair preenchida. Usa-se quem envia, e não o responsável
+// atribuído ao contacto, para ninguém assinar e-mails em nome de outra pessoa.
+const aplicarVariaveisContacto = (assunto, corpo, contact, tipo, remetente) => {
   const tipoInfo = TIPOS_CONTACTO[tipo] || {};
   // normaliza uma chave de variável (minúsculas, sem acentos) para o preenchimento funcionar
   // independentemente de como a variável foi escrita no template (ex: {{Nome}}, {{NOME}}, {{responsável}})
   const norm = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+  const assinatura = remetente?.nome
+    ? [
+        remetente.nome,
+        [remetente.cargo, remetente.departamento].filter(Boolean).join(" de "),
+        "Young Minho Enterprise",
+      ].filter(Boolean).join("<br>")
+    : "";
+
   const mapa = {
     nome: contact?.pessoaContacto || contact?.nome || "",
     contacto: contact?.pessoaContacto || contact?.nome || "",
     email: contact?.email || "",
     responsavel: contact?.responsavel || "",
     artista: "", espaco: "", parceiro: "",
+
+    // Dados de quem está a enviar, para a assinatura
+    meunome: remetente?.nome || "",
+    remetente: remetente?.nome || "",
+    cargo: remetente?.cargo || "",
+    departamento: remetente?.departamento || "",
+    assinatura,
   };
   if (tipoInfo.varKey) mapa[norm(tipoInfo.varKey)] = contact?.nome || "";
   const substituir = (str) => (str || "").replace(/\{\{\s*([\wÀ-ÿ]+)\s*\}\}/g, (m, k) => {
@@ -419,13 +445,13 @@ const SEED_TEMPLATES = [
     nome: "1ª fase — Convite inicial", categoria: "Artistas", fase: 1,
     assunto: "Querem participar no concerto solidário da YME?",
     corpo: "Bom dia {{nome}},<br><br>" +
-      "O meu nome é [Teu Nome] e sou [teu cargo] no departamento de [departamento] da Young Minho Enterprise (YME), a Júnior Empresa da Escola de Economia, Gestão e Ciência Política da Universidade do Minho, que atua nas áreas de Design, Web Development e Corporate Consulting.<br><br>" +
+      "O meu nome é {{meunome}} e sou {{cargo}} no departamento de {{departamento}} da Young Minho Enterprise (YME), a Júnior Empresa da Escola de Economia, Gestão e Ciência Política da Universidade do Minho, que atua nas áreas de Design, Web Development e Corporate Consulting.<br><br>" +
       "Na YME, acreditamos que o impacto social faz parte integrante do nosso percurso enquanto jovens profissionais. Por isso, estamos a organizar um Concerto Solidário que se irá realizar em Braga, com o objetivo de reverter todos os ganhos a favor do IPO e assim ajudar aqueles que mais precisam.<br><br>" +
       "Neste momento, estamos a planear o evento para o período compreendido entre (datas).<br><br>" +
       "Desta forma, e porque admiramos o vosso trabalho, gostaríamos muito de contar com a vossa participação nesta causa. Teriam disponibilidade de agenda dentro desta janela temporal?<br><br>" +
       "Caso tenham interesse, estaríamos totalmente disponíveis para uma breve reunião para discutirmos datas específicas e os detalhes do evento.<br><br>" +
       "Fico inteiramente ao dispor para agendar ou esclarecer qualquer questão.<br><br>" +
-      "Cumprimentos,<br>#ASSINATURA",
+      "Cumprimentos,<br>{{assinatura}}",
   },
 ].map((t) => ({ ...blankTemplate(), ...t }));
 
@@ -677,6 +703,9 @@ export default function App() {
   // passar por outra pessoa.
   const [user, setUser] = useState(null);
   const [sessaoVerificada, setSessaoVerificada] = useState(false);
+  // Cargo e departamento de quem tem sessão, para preencher a assinatura dos
+  // e-mails sem obrigar a escrevê-los à mão em cada envio.
+  const [remetente, setRemetente] = useState(null);
   const [members, setMembers] = useState([]);
   const [artists, setArtists] = useState(null);
   const [spaces, setSpaces] = useState(null);
@@ -760,6 +789,21 @@ export default function App() {
       }
     })();
   }, []);
+
+  // Dados para a assinatura, recarregados sempre que muda quem está a usar.
+  useEffect(() => {
+    if (!user) { setRemetente(null); return; }
+    let cancelado = false;
+    (async () => {
+      try {
+        const d = await dadosMembro(user);
+        if (!cancelado) setRemetente(d);
+      } catch {
+        if (!cancelado) setRemetente({ nome: user, cargo: "", departamento: "" });
+      }
+    })();
+    return () => { cancelado = true; };
+  }, [user]);
 
   useEffect(() => {
     try { window.sessionStorage.setItem("ymec_module", module); } catch {}
@@ -1360,6 +1404,7 @@ export default function App() {
             listByTipo={listByTipo}
             onResposta={respostaHandlers}
             members={members}
+            remetente={remetente}
           />
         ) : module === "documentos" ? (
           <DocumentosModule
@@ -2851,7 +2896,7 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
 
 /* ---------- secção "Comunicação" partilhada por Artistas, Espaços e Parceiros ---------- */
 /* permite escolher um template, ver a prévia já preenchida com os dados do contacto, editar antes de enviar e enviar o email */
-function ComunicacaoTab({ tipo, contact, templates, user, onSend, showToast }) {
+function ComunicacaoTab({ tipo, contact, templates, user, onSend, showToast, remetente }) {
   const tipoInfo = TIPOS_CONTACTO[tipo] || {};
   const categoriaDefault = tipoInfo.categoriaTemplate || "Todas";
   const list = templates || [];
@@ -2883,7 +2928,7 @@ function ComunicacaoTab({ tipo, contact, templates, user, onSend, showToast }) {
   // sempre que se muda de template, preenche o assunto/corpo com os dados reais do contacto (ainda editável depois)
   useEffect(() => {
     if (selected) {
-      const filled = aplicarVariaveisContacto(selected.assunto, selected.corpo, contact, tipo);
+      const filled = aplicarVariaveisContacto(selected.assunto, selected.corpo, contact, tipo, remetente);
       setAssunto(filled.assunto);
       setCorpoState(filled.corpo);
     } else {
@@ -4587,7 +4632,7 @@ function TemplatePreviewModal({ template, onClose }) {
 /* ---------- tarefas module ---------- */
 function TarefasModule({
   tasks, persistTasks, user, showToast, onToggleTask, onSetTaskEstado,
-  templates, listByTipo, onResposta, members,
+  templates, listByTipo, onResposta, members, remetente,
 }) {
   const [modal, setModal] = useState(null); // 'add' | 'edit' | 'delete'
   const [editing, setEditing] = useState(null);
@@ -4829,6 +4874,7 @@ function TarefasModule({
           onResposta={onResposta?.[detalheTask.origem.tipo]}
           onSetTaskEstado={onSetTaskEstado}
           showToast={showToast}
+          remetente={remetente}
         />
       )}
     </div>
@@ -5011,14 +5057,14 @@ function DocumentoModal({ data, onClose, onSave, isNew }) {
    e permite indicar diretamente se houve resposta — sem precisar de abrir o contacto separadamente.
    É a mesma lógica (e os mesmos dados) da secção "Seguimento" do contacto, agora acessível a partir da
    própria tarefa, para o fluxo ficar sempre sincronizado entre tarefas, contactos e templates. */
-function AutoTaskModal({ task, templates, contact, onClose, onResposta, onSetTaskEstado, showToast }) {
+function AutoTaskModal({ task, templates, contact, onClose, onResposta, onSetTaskEstado, showToast, remetente }) {
   const [busy, setBusy] = useState(false);
   const origem = task.origem || {};
   const tipoInfo = TIPOS_CONTACTO[origem.tipo] || {};
   const fase = origem.evento === "followup" ? origem.fase : 1;
   const categoria = tipoInfo.categoriaTemplate;
   const tmpl = (templates || []).find((t) => t.categoria === categoria && Number(t.fase) === fase) || null;
-  const preview = tmpl ? aplicarVariaveisContacto(tmpl.assunto, tmpl.corpo, contact || {}, origem.tipo) : null;
+  const preview = tmpl ? aplicarVariaveisContacto(tmpl.assunto, tmpl.corpo, contact || {}, origem.tipo, remetente) : null;
 
   // a tarefa representa a fase atualmente ativa do seguimento deste contacto — só faz sentido
   // registar resposta enquanto isso for verdade (evita duplicar ações quando já existe um follow-up

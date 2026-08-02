@@ -127,3 +127,16 @@ export async function membroComSessao() {
     .maybeSingle();
   return perfil?.nome || null;
 }
+
+/**
+ * Dados de um membro para a assinatura dos e-mails (nome, cargo, departamento).
+ */
+export async function dadosMembro(nome) {
+  if (!nome) return null;
+  const { data } = await supabase
+    .from("profiles")
+    .select("nome, cargo, departamento")
+    .eq("nome", nome)
+    .maybeSingle();
+  return data || { nome, cargo: "", departamento: "" };
+}
