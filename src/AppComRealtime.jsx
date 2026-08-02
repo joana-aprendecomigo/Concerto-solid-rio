@@ -53,6 +53,21 @@ export default function AppComRealtime() {
     };
   }, []);
 
+  // Alguém alterou o mesmo contacto enquanto esta pessoa o editava. A gravação
+  // não se perde (só se enviam os campos que cada um mexeu), mas convém avisar
+  // para poder confirmar o resultado.
+  useEffect(() => {
+    const aoConflito = (e) => {
+      const nomes = (e.detail || []).map((c) => `${c.nome} (também editado por ${c.outro})`);
+      setAviso(
+        `Atenção: ${nomes.join("; ")}. As tuas alterações foram guardadas, mas ` +
+          "vale a pena confirmar a ficha."
+      );
+    };
+    window.addEventListener("concerto:conflito", aoConflito);
+    return () => window.removeEventListener("concerto:conflito", aoConflito);
+  }, []);
+
   useEffect(() => {
     if (!supabaseConfigurado) return;
 

@@ -53,6 +53,32 @@ const DASH_GLOW = "radial-gradient(circle at 12% -6%, rgba(230,23,140,0.20), tra
 
 const FONTS = `
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500;1,600&display=swap');
+
+/* Em ecrãs estreitos, os formulários de duas colunas passam a uma só: com
+   ~350px de largura, dois campos lado a lado ficam demasiado apertados para
+   escrever um email ou um nome de agência. Está aqui em CSS, e não nos estilos
+   inline de cada modal, porque são oito grelhas espalhadas pelo ficheiro. */
+@media (max-width: 859px) {
+  .form-grid { grid-template-columns: 1fr !important; }
+  .form-grid > * { grid-column: span 1 !important; }
+}
+
+/* O Dashboard usa grelhas de 2, 3 e 5 colunas fixas para os cartões de
+   indicadores e gráficos. Num telemóvel, cinco colunas tornam os números
+   ilegíveis; passam a uma ou duas conforme o espaço. */
+@media (max-width: 859px) {
+  .dash-grid-5, .dash-grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .dash-grid-2 { grid-template-columns: 1fr !important; }
+}
+@media (max-width: 520px) {
+  .dash-grid-5, .dash-grid-3 { grid-template-columns: 1fr !important; }
+}
+
+/* As tabelas já deslizam na horizontal; este toque evita que o dedo arraste a
+   página inteira enquanto se percorre uma tabela larga. */
+@media (max-width: 859px) {
+  .tabela-scroll { -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+}
 `;
 
 // fonte serifada elegante, usada nos títulos de destaque (ecrã de boas-vindas)
@@ -292,6 +318,26 @@ const MODULES = [
   { key: "documentos", label: "Documentos", icon: FileText, active: true },
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, active: true },
 ];
+
+// Largura a partir da qual há espaço para o menu lateral permanente. Abaixo
+// disto (telemóveis e tablets em vertical) ele passa a abrir por cima do
+// conteúdo, senão ocupava metade do ecrã.
+const LARGURA_MOBILE = 860;
+
+/** Verdadeiro em ecrãs estreitos; acompanha rotações e mudanças de tamanho. */
+function useEcraEstreito() {
+  const [estreito, setEstreito] = useState(
+    typeof window !== "undefined" ? window.innerWidth < LARGURA_MOBILE : false
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${LARGURA_MOBILE - 1}px)`);
+    const aoMudar = (e) => setEstreito(e.matches);
+    setEstreito(mq.matches);
+    mq.addEventListener("change", aoMudar);
+    return () => mq.removeEventListener("change", aoMudar);
+  }, []);
+  return estreito;
+}
 
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 const blankArtist = () => ({
@@ -608,6 +654,8 @@ export default function App() {
   const [documents, setDocuments] = useState(null);
   const [module, setModuleKey] = useState("artistas");
   const [toast, setToast] = useState(null);
+  const [menuAberto, setMenuAberto] = useState(false);
+  const ecraEstreito = useEcraEstreito();
   const tasksRef = useRef([]);
 
   // mantém as tarefas "automáticas" (Contactar X) sincronizadas com o campo Responsável
@@ -1122,8 +1170,48 @@ export default function App() {
   return (
     <div style={{ display: "flex", minHeight: "100vh", fontFamily: "Inter, sans-serif", background: C.bg }}>
       <style>{FONTS}</style>
-      <Sidebar module={module} setModuleKey={setModuleKey} user={user} setUser={setUser} showToast={showToast} />
-      <div style={{ flex: 1, minWidth: 0, padding: module === "dashboard" ? 0 : "28px 32px" }}>
+
+      {/* Em ecrãs estreitos o menu abre por cima do conteúdo, com uma barra no
+          topo para o chamar. Em ecrãs largos mantém-se sempre visível. */}
+      {ecraEstreito && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, height: 52, zIndex: 90,
+          background: C.sidebar, display: "flex", alignItems: "center", gap: 12, padding: "0 14px",
+        }}>
+          <button
+            type="button"
+            onClick={() => setMenuAberto(true)}
+            aria-label="Abrir menu"
+            style={{ background: "transparent", border: "none", color: "#fff", cursor: "pointer", padding: 6, display: "flex", flexDirection: "column", gap: 3.5 }}
+          >
+            {[0, 1, 2].map((i) => (
+              <span key={i} style={{ display: "block", width: 18, height: 2, background: "#fff", borderRadius: 2 }} />
+            ))}
+          </button>
+          <img src={LOGO_YME_LIGHT} alt="YME" style={{ height: 16, width: "auto" }} />
+          <div style={{ marginLeft: "auto", fontSize: 12.5, color: "rgba(255,255,255,0.75)", fontWeight: 600 }}>
+            {MODULES.find((m) => m.key === module)?.label}
+          </div>
+        </div>
+      )}
+
+      {(!ecraEstreito || menuAberto) && (
+        <Sidebar
+          module={module}
+          setModuleKey={(k) => { setModuleKey(k); setMenuAberto(false); }}
+          user={user}
+          setUser={setUser}
+          showToast={showToast}
+          flutuante={ecraEstreito}
+          onFechar={() => setMenuAberto(false)}
+        />
+      )}
+
+      <div style={{
+        flex: 1, minWidth: 0,
+        padding: module === "dashboard" ? 0 : (ecraEstreito ? "16px 14px" : "28px 32px"),
+        marginTop: ecraEstreito ? 52 : 0,
+      }}>
         {module === "dashboard" ? (
           <DashboardModule
             artists={artists}
@@ -1220,14 +1308,26 @@ export default function App() {
 }
 
 /* ---------- sidebar ---------- */
-function Sidebar({ module, setModuleKey, user, setUser, showToast }) {
+// `flutuante` = ecrã estreito: o menu abre por cima do conteúdo em vez de
+// ocupar uma coluna permanente, que num telemóvel comeria metade da largura.
+function Sidebar({ module, setModuleKey, user, setUser, showToast, flutuante, onFechar }) {
   return (
+    <>
+      {flutuante && (
+        <div
+          onClick={onFechar}
+          style={{ position: "fixed", inset: 0, background: "rgba(15,20,30,0.5)", zIndex: 95 }}
+        />
+      )}
     <div style={{
       width: 232, background: C.sidebar, color: "#fff", display: "flex", flexDirection: "column",
       padding: "24px 16px", flexShrink: 0, borderRadius: "0",
       // fica sempre visível (nome + botão "Sair" nunca ficam escondidos, mesmo com listas compridas
       // que tornem a página principal mais alta do que o ecrã)
-      position: "sticky", top: 0, height: "100vh", overflowY: "auto",
+      position: flutuante ? "fixed" : "sticky",
+      top: 0, left: 0, height: "100vh", overflowY: "auto",
+      zIndex: flutuante ? 96 : undefined,
+      boxShadow: flutuante ? "4px 0 24px rgba(0,0,0,0.3)" : undefined,
     }}>
       <div style={{ padding: "0 8px", marginBottom: 22 }}>
         <img src={LOGO_YME_LIGHT} alt="YME" style={{ height: 22, width: "auto" }} />
@@ -1276,6 +1376,7 @@ function Sidebar({ module, setModuleKey, user, setUser, showToast }) {
         </button>
       </div>
     </div>
+    </>
   );
 }
 
@@ -1543,7 +1644,7 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
             <div style={{ fontSize: 13.5 }}>Ajusta os filtros ou adiciona o primeiro artista à lista.</div>
           </div>
         ) : (
-          <div style={{ overflowX: "auto" }}>
+          <div className="tabela-scroll" style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: "#FAFBFC", borderBottom: `1px solid ${C.line}` }}>
@@ -1962,7 +2063,7 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
             <div style={{ fontSize: 13.5 }}>Ajusta os filtros ou adiciona o primeiro espaço à lista.</div>
           </div>
         ) : (
-          <div style={{ overflowX: "auto" }}>
+          <div className="tabela-scroll" style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: "#FAFBFC", borderBottom: `1px solid ${C.line}` }}>
@@ -2181,7 +2282,7 @@ function ComunicacaoTab({ tipo, contact, templates, user, onSend, showToast }) {
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+      <div className="form-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
         <Field label="Categoria do template">
           <select style={selectStyle} value={filterCategoria} onChange={(e) => setFilterCategoria(e.target.value)}>
             <option value="Todas">Todas as categorias</option>
@@ -2624,7 +2725,7 @@ function EspacoModal({ data, members, existingList, onClose, onSave, isNew, temp
 
       {tab === "dados" ? (
         <form onSubmit={submit}>
-          <div style={{ padding: "20px 24px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, maxHeight: "60vh", overflowY: "auto" }}>
+          <div className="form-grid" style={{ padding: "20px 24px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, maxHeight: "60vh", overflowY: "auto" }}>
             <Field label="Nome do espaço *" span2>
               <input required style={inputStyle} value={form.nome} onChange={(e) => set("nome", e.target.value)} />
             </Field>
@@ -2930,7 +3031,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
             <div style={{ fontSize: 13.5 }}>Ainda não há parceiros concretos — adiciona o primeiro assim que houver contacto.</div>
           </div>
         ) : (
-          <div style={{ overflowX: "auto" }}>
+          <div className="tabela-scroll" style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: "#FAFBFC", borderBottom: `1px solid ${C.line}` }}>
@@ -3104,7 +3205,7 @@ function ParceiroModal({ data, members, existingList, onClose, onSave, isNew, te
 
       {tab === "dados" ? (
         <form onSubmit={submit}>
-          <div style={{ padding: "20px 24px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, maxHeight: "60vh", overflowY: "auto" }}>
+          <div className="form-grid" style={{ padding: "20px 24px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, maxHeight: "60vh", overflowY: "auto" }}>
             <Field label="Nome do parceiro *" span2>
               <input required style={inputStyle} value={form.nome} onChange={(e) => set("nome", e.target.value)} />
             </Field>
@@ -3239,7 +3340,7 @@ function ArtistModal({ data, members, existingList, onClose, onSave, isNew, temp
 
       {tab === "dados" ? (
         <form onSubmit={submit}>
-          <div style={{ padding: "20px 24px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, maxHeight: "60vh", overflowY: "auto" }}>
+          <div className="form-grid" style={{ padding: "20px 24px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, maxHeight: "60vh", overflowY: "auto" }}>
             <Field label="Nome do artista *" span2>
               <input required style={inputStyle} value={form.nome} onChange={(e) => set("nome", e.target.value)} />
             </Field>
@@ -4088,7 +4189,7 @@ function DocumentoModal({ data, onClose, onSave, isNew }) {
         <button onClick={onClose} style={iconBtn}><X size={17} /></button>
       </div>
       <form onSubmit={submit}>
-        <div style={{ padding: "18px 24px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, maxHeight: "60vh", overflowY: "auto" }}>
+        <div className="form-grid" style={{ padding: "18px 24px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, maxHeight: "60vh", overflowY: "auto" }}>
           <Field label="Título" span2>
             <input required style={inputStyle} value={form.titulo} onChange={(e) => set("titulo", e.target.value)} placeholder="Ex.: Acordo com o IPO" />
           </Field>
@@ -4270,7 +4371,7 @@ function TaskModal({ data, onClose, onSave, isNew }) {
         <button onClick={onClose} style={iconBtn}><X size={17} /></button>
       </div>
       <form onSubmit={submit}>
-        <div style={{ padding: "20px 24px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <div className="form-grid" style={{ padding: "20px 24px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           <Field label="Título *" span2>
             <input required style={inputStyle} value={form.titulo} onChange={(e) => set("titulo", e.target.value)} />
           </Field>
@@ -4810,14 +4911,14 @@ function DashboardModule({ artists, spaces, partners, tasks, members, user }) {
         {semCartaoSelecionado && (
           <>
             <DashSectionTitle icon={LayoutDashboard} title="Visão geral do projeto" subtitle="Toda a equipa" />
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14, marginBottom: 16 }}>
+            <div className="dash-grid-5" style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14, marginBottom: 16 }}>
               <DashStatCard label="Total de contactos" value={overview.total} icon={Users} accent="#9DB4FF" />
               <DashStatCard label="Por contactar" value={overview.porContactar} icon={HelpCircle} accent="#C7CEDE" />
               <DashStatCard label="Em negociação" value={overview.emNegociacao} icon={Clock} accent="#FFC876" />
               <DashStatCard label="Confirmados" value={overview.confirmados} icon={Sparkles} accent="#FF8FCB" />
               <DashStatCard label="Recusados" value={overview.recusados} icon={XCircle} accent="#FF9FAE" />
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16, marginBottom: 32 }}>
+            <div className="dash-grid-2" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16, marginBottom: 32 }}>
               <div style={panelStyle}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                   <div style={{ fontWeight: 700, fontSize: 14, color: C.ink }}>Progresso global até "Confirmado"</div>
@@ -4847,7 +4948,7 @@ function DashboardModule({ artists, spaces, partners, tasks, members, user }) {
               title={isLider(user) ? `Estatísticas de ${alvoEstatisticasIndividuais}` : "As tuas estatísticas"}
               subtitle={`Atividade individual de ${alvoEstatisticasIndividuais}`}
             />
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14, marginBottom: 32 }}>
+            <div className="dash-grid-5" style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14, marginBottom: 32 }}>
               <DashStatCard label="Contactos atribuídos" value={registoEstatisticasIndividuais.contactosAtribuidos} icon={Users} accent="#9DB4FF" />
               <DashStatCard label="E-mails enviados" value={registoEstatisticasIndividuais.emails} icon={Mail} accent="#7FDCE6" />
               <DashStatCard label="Confirmados" value={registoEstatisticasIndividuais.confirmados} icon={Sparkles} accent="#FF8FCB" />
@@ -4871,13 +4972,13 @@ function DashboardModule({ artists, spaces, partners, tasks, members, user }) {
         {semCartaoSelecionado && (
           <>
             <DashSectionTitle icon={BarChart3} title="Desempenho da equipa" />
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 16 }}>
+            <div className="dash-grid-3" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 16 }}>
               <DashStatCard label="Taxa de resposta — 1º contacto" value={`${taxasResposta.primeiro}%`} icon={Mail} accent="#7FDCE6" />
               <DashStatCard label="Taxa de resposta — follow-ups" value={`${taxasResposta.followup}%`} icon={Workflow} accent="#FFC876" />
               <DashStatCard label="Tempo médio de resposta" value={taxasResposta.tempoMedioResposta !== null ? `${taxasResposta.tempoMedioResposta.toFixed(1)} dias` : "—"} icon={Clock} accent="#C7CEDE" />
             </div>
             {isLider(user) ? (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 32 }}>
+              <div className="dash-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 32 }}>
                 <div style={panelStyle}>
                   <div style={{ fontWeight: 700, fontSize: 14, color: C.ink, marginBottom: 14 }}>E-mails enviados por membro</div>
                   {porMembro.filter((m) => m.emails > 0 || m.tarefasConcluidas > 0 || m.contactosAtribuidos > 0).length === 0 ? (
@@ -4915,7 +5016,7 @@ function DashboardModule({ artists, spaces, partners, tasks, members, user }) {
         {semCartaoSelecionado && (
           <>
             <DashSectionTitle icon={ListChecks} title="Tarefas da equipa" />
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 16 }}>
+            <div className="dash-grid-3" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 16 }}>
               <DashStatCard label="Concluídas" value={tarefasStats.concluidas} icon={CheckSquare} accent="#8FE0B4" />
               <DashStatCard label="Pendentes (por fazer + em progresso)" value={tarefasStats.pendentes} icon={Clock} accent="#FFC876" />
               <DashStatCard label="Em atraso" value={tarefasStats.atrasadas.length} icon={AlertOctagon} accent="#FF9FAE" />
@@ -4969,7 +5070,7 @@ function DashboardModule({ artists, spaces, partners, tasks, members, user }) {
               title="Contactos mortos ou sem movimento"
               subtitle={`Sem qualquer atividade há ${DIAS_CONTACTO_PARADO}+ dias, ou nunca chegaram a ser contactados`}
             />
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 16 }}>
+            <div className="dash-grid-3" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 16 }}>
               <DashStatCard label="Total parados" value={contactosParados.total} icon={AlertOctagon} accent="#C7CEDE" />
               <DashStatCard label="Pararam a meio da negociação" value={contactosParados.comAtividadeAntiga} icon={Clock} accent="#FFC876" />
               <DashStatCard label="Nunca chegaram a ser contactados" value={contactosParados.nuncaContactados} icon={HelpCircle} accent="#C7CEDE" />
@@ -5011,7 +5112,7 @@ function DashboardModule({ artists, spaces, partners, tasks, members, user }) {
           <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>{mensagemIncentivo}</div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+        <div className="dash-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
           <div style={panelStyle}>
             <div style={{ display: "flex", alignItems: "center", gap: 7, fontWeight: 700, fontSize: 13.5, color: C.ink, marginBottom: 12 }}>
               <Target size={14} color={C.accent} /> Os teus objetivos desta semana

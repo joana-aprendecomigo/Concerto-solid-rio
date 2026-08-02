@@ -104,25 +104,95 @@ async function ler(chave) {
 // Escrita por diferença
 // ---------------------------------------------------------------------------
 
+/**
+ * Campos que mudaram entre duas versões do mesmo registo.
+ *
+ * Enviar o registo inteiro fazia com que quem gravasse por último apagasse o
+ * trabalho do outro: bastava terem aberto a mesma ficha, mesmo que tivessem
+ * mexido em campos diferentes. Enviando só o que cada um alterou, duas pessoas
+ * podem editar campos distintos do mesmo contacto sem se atropelarem.
+ */
+function camposAlterados(antes, depois) {
+  const alteracoes = {};
+  Object.keys(depois).forEach((k) => {
+    if (JSON.stringify(antes?.[k]) !== JSON.stringify(depois[k])) {
+      alteracoes[k] = depois[k];
+    }
+  });
+  return alteracoes;
+}
+
+/** Avisos de conflito acumulados durante uma gravação, para a UI mostrar. */
+let conflitos = [];
+export function recolherConflitos() {
+  const c = conflitos;
+  conflitos = [];
+  return c;
+}
+
 async function guardarContactos(chave, tipo, novos) {
   const antigos = cache.get(chave) || [];
   const antigosPorId = porId(antigos);
   const novosPorId = porId(novos);
 
-  const paraGravar = novos.filter((c) => {
+  const criados = [];
+  const editados = [];
+  novos.forEach((c) => {
     const antigo = antigosPorId.get(c.id);
-    if (!antigo) return true;
-    // Compara tudo menos a timeline, tratada em separado.
+    if (!antigo) {
+      criados.push(c);
+      return;
+    }
     const { historico: _h1, ...a } = antigo;
     const { historico: _h2, ...b } = c;
-    return JSON.stringify(a) !== JSON.stringify(b);
+    if (JSON.stringify(a) !== JSON.stringify(b)) editados.push({ antigo: a, novo: c });
   });
 
-  if (paraGravar.length) {
+  if (criados.length) {
+    const { error } = await supabase.from("contacts").insert(
+      criados.map((c) => {
+        const linha = contactoParaBD(c, tipo);
+        // Quem gere estas colunas é a base de dados.
+        delete linha.atualizado_em;
+        return linha;
+      })
+    );
+    if (error) throw error;
+  }
+
+  for (const { antigo, novo } of editados) {
+    const linhaAntiga = contactoParaBD(antigo, tipo);
+    const linhaNova = contactoParaBD(novo, tipo);
+    const alteracoes = camposAlterados(linhaAntiga, linhaNova);
+    delete alteracoes.id;
+    delete alteracoes.tipo;
+    delete alteracoes.atualizado_em; // mantido pelo trigger
+    if (!Object.keys(alteracoes).length) continue;
+
+    // Confirma que ninguém mexeu no registo desde que o lemos. Se mexeu,
+    // gravamos na mesma (as alterações são de campos que este utilizador
+    // editou) mas avisamos, para a pessoa poder verificar o resultado.
+    const { data: atual } = await supabase
+      .from("contacts")
+      .select("atualizado_em, atualizado_por")
+      .eq("id", novo.id)
+      .maybeSingle();
+
     const { error } = await supabase
       .from("contacts")
-      .upsert(paraGravar.map((c) => contactoParaBD(c, tipo)));
+      .update(alteracoes)
+      .eq("id", novo.id);
     if (error) throw error;
+
+    if (
+      atual &&
+      antigo.atualizado_em &&
+      atual.atualizado_em !== antigo.atualizado_em &&
+      atual.atualizado_por &&
+      atual.atualizado_por !== novo.atualizadoPor
+    ) {
+      conflitos.push({ nome: novo.nome, outro: atual.atualizado_por });
+    }
   }
 
   // Eventos novos da timeline (só se acrescentam, nunca se apagam).
@@ -224,6 +294,14 @@ export function instalarStorageSupabase() {
       const valor = JSON.parse(valorJSON);
       await guardar(chave, valor);
       cache.set(chave, valor);
+
+      // Avisa a interface se alguém tiver alterado os mesmos contactos
+      // entretanto. A gravação foi feita (só dos campos que esta pessoa
+      // mexeu), mas convém saber que a ficha tem também trabalho de outrem.
+      const cs = recolherConflitos();
+      if (cs.length && typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("concerto:conflito", { detail: cs }));
+      }
       return true;
     },
   };

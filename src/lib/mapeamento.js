@@ -30,6 +30,9 @@ export function contactoDaBD(row) {
     dataUltimoEnvio: ouVazio(row.data_ultimo_envio),
     criadoPor: ouVazio(row.criado_por),
     atualizadoPor: ouVazio(row.atualizado_por),
+    // Marca temporal da última gravação, usada para detetar que outra pessoa
+    // alterou este contacto entretanto.
+    atualizadoEm: row.atualizado_em || "",
     historico: (row.contact_events || []).map(eventoDaBD),
   };
 
@@ -66,6 +69,9 @@ export function contactoParaBD(c, tipo) {
     data_ultimo_envio: data(c.dataUltimoEnvio),
     criado_por: c.criadoPor || null,
     atualizado_por: c.atualizadoPor || null,
+    // Não se envia `atualizado_em`: é o trigger da base de dados que o mantém.
+    // Fica aqui só para a comparação de versões saber o que já tínhamos lido.
+    atualizado_em: c.atualizadoEm || null,
   };
 
   if (tipo === "artista") row.agencia = ouVazio(c.agencia);
