@@ -20,7 +20,7 @@
 // todas as políticas e só deve viver em servidores.
 // ============================================================================
 
-const PROJETO = "drqllcofylgzvzcpped";
+const PROJETO = "drqllcofylgzvzcppeds";
 
 // As variáveis de ambiente, quando existem, ganham prioridade — permite apontar
 // para outro projeto (por exemplo, um de testes) sem alterar o código.
