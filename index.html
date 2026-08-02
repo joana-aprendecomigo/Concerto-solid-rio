@@ -13,6 +13,13 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0F172B" />
+
+    <!-- Instalação no iPhone: o Safari ignora o manifest e precisa destas
+         etiquetas para abrir sem a barra do browser. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Concerto" />
+    <meta name="description" content="Gestão de relações externas do concerto solidário a favor do IPO." />
     <style>
       /* O componente desenha o seu próprio fundo e ocupa a altura toda da
          janela; sem isto, as margens por omissão do browser deixam faixas

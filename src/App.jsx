@@ -1467,6 +1467,76 @@ export default function App() {
   );
 }
 
+// Botão para instalar a plataforma como aplicação.
+//
+// O Chrome guarda o convite de instalação num evento que só dispara uma vez;
+// apanhamo-lo e mostramos um botão próprio, porque a opção escondida no menu
+// do browser passa despercebida à maioria das pessoas.
+//
+// No iPhone não existe esse evento — o Safari só instala pelo menu Partilhar —
+// por isso mostram-se as instruções em vez do botão.
+function BotaoInstalar({ estilo }) {
+  const [convite, setConvite] = useState(null);
+  const [instalado, setInstalado] = useState(false);
+  const [mostrarAjudaIOS, setMostrarAjudaIOS] = useState(false);
+
+  const ehIOS = typeof navigator !== "undefined" &&
+    /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const jaEmApp = typeof window !== "undefined" &&
+    (window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone);
+
+  useEffect(() => {
+    const aoConvite = (e) => {
+      e.preventDefault();
+      setConvite(e);
+    };
+    const aoInstalar = () => { setInstalado(true); setConvite(null); };
+    window.addEventListener("beforeinstallprompt", aoConvite);
+    window.addEventListener("appinstalled", aoInstalar);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", aoConvite);
+      window.removeEventListener("appinstalled", aoInstalar);
+    };
+  }, []);
+
+  // Já está instalada, ou o browser não suporta instalação.
+  if (jaEmApp || instalado) return null;
+  if (!convite && !ehIOS) return null;
+
+  const instalar = async () => {
+    if (ehIOS) { setMostrarAjudaIOS(true); return; }
+    convite.prompt();
+    await convite.userChoice;
+    setConvite(null);
+  };
+
+  return (
+    <>
+      <button type="button" onClick={instalar} style={estilo} title="Instalar como aplicação">
+        <Download size={14} /> Instalar aplicação
+      </button>
+
+      {mostrarAjudaIOS && (
+        <Overlay onClose={() => setMostrarAjudaIOS(false)} narrow>
+          <div style={{ padding: "22px 24px" }}>
+            <div style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, fontSize: 16.5, color: C.ink, marginBottom: 12 }}>
+              Instalar no iPhone
+            </div>
+            <div style={{ fontSize: 13.5, color: C.inkSoft, lineHeight: 1.6 }}>
+              No Safari, toca no botão <strong>Partilhar</strong> (o quadrado com
+              a seta, em baixo) e escolhe <strong>Adicionar ao ecrã principal</strong>.
+              A plataforma passa a abrir como uma aplicação, sem a barra do browser.
+            </div>
+          </div>
+          <div style={{ padding: "16px 24px", borderTop: `1px solid ${C.line}`, display: "flex", justifyContent: "flex-end" }}>
+            <button type="button" onClick={() => setMostrarAjudaIOS(false)} style={btnPrimary}>Entendido</button>
+          </div>
+        </Overlay>
+      )}
+    </>
+  );
+}
+
 /* ---------- entrada com nome + código ---------- */
 // Cada pessoa escolhe o seu nome e define um código na primeira entrada. Por
 // trás é uma conta no Supabase Auth (ver src/lib/auth.js), mas a equipa nunca
@@ -1582,6 +1652,14 @@ function EcraEntrada({ onEntrou }) {
           <div style={{ marginTop: 8, color: "rgba(255,255,255,0.4)", fontSize: 11.5, lineHeight: 1.5, textAlign: "center" }}>
             Acompanha o projeto sem poder alterar nada.
           </div>
+
+          <BotaoInstalar estilo={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
+            width: "100%", marginTop: 14, padding: "9px 14px", borderRadius: 10,
+            border: "1px dashed rgba(255,255,255,0.18)", background: "transparent",
+            color: "rgba(255,255,255,0.55)", fontSize: 12.5, cursor: "pointer",
+            fontFamily: "Inter, sans-serif", fontWeight: 500,
+          }} />
         </div>
       </>
     );
@@ -1817,6 +1895,13 @@ function Sidebar({ module, setModuleKey, user, onSair, showToast, flutuante, onF
             {soLeitura ? "Visitante" : user}
           </div>
         </div>
+
+        <BotaoInstalar estilo={{
+          display: "flex", alignItems: "center", gap: 10, padding: "9px 10px", borderRadius: 9,
+          background: "transparent", border: "none", color: "rgba(255,255,255,0.6)",
+          fontSize: 13.5, fontWeight: 500, cursor: "pointer", textAlign: "left",
+          fontFamily: "Inter, sans-serif", width: "100%",
+        }} />
 
         {!soLeitura && (
         <button
