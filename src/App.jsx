@@ -1493,7 +1493,10 @@ function FaixaInstalar() {
   });
   const [ajudaIOS, setAjudaIOS] = useState(false);
 
-  const ehIOS = typeof navigator !== "undefined" && /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  const ehIOS = /iphone|ipad|ipod/i.test(ua);
+  const ehAndroid = /android/i.test(ua);
+  const ehTelemovel = ehIOS || ehAndroid;
   const jaEmApp = typeof window !== "undefined" &&
     (window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone);
 
@@ -1518,10 +1521,13 @@ function FaixaInstalar() {
   };
 
   if (jaEmApp || dispensada) return null;
-  if (!convite && !ehIOS) return null;
+  // No telemóvel mostra-se sempre: o Chrome só emite o convite automático
+  // depois de algumas visitas, e até lá ninguém descobriria que dá para
+  // instalar. Sem convite, explicam-se os passos do menu do browser.
+  if (!convite && !ehTelemovel) return null;
 
   const instalar = async () => {
-    if (ehIOS) { setAjudaIOS(true); return; }
+    if (!convite) { setAjudaIOS(true); return; }
     convite.prompt();
     const { outcome } = await convite.userChoice;
     setConvite(null);
@@ -1537,10 +1543,10 @@ function FaixaInstalar() {
       }}>
         <Download size={16} color={C.accent} style={{ flexShrink: 0 }} />
         <div style={{ flex: 1, minWidth: 180, fontSize: 13, color: C.ink, fontWeight: 500, lineHeight: 1.4 }}>
-          Instala a plataforma no teu {ehIOS ? "iPhone" : "dispositivo"} para a abrires como uma aplicação.
+          Instala a plataforma no teu {ehIOS ? "iPhone" : ehAndroid ? "telemóvel" : "computador"} para a abrires como uma aplicação.
         </div>
         <button type="button" onClick={instalar} style={{ ...btnPrimary, padding: "8px 14px", fontSize: 13 }}>
-          <Download size={14} /> Instalar
+          <Download size={14} /> {convite ? "Instalar" : "Como instalar"}
         </button>
         <button
           type="button"
@@ -1556,11 +1562,27 @@ function FaixaInstalar() {
         <Overlay onClose={() => setAjudaIOS(false)} narrow>
           <div style={{ padding: "22px 24px" }}>
             <div style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, fontSize: 16.5, color: C.ink, marginBottom: 12 }}>
-              Instalar no iPhone
+              {ehIOS ? "Instalar no iPhone" : "Instalar a aplicação"}
             </div>
             <div style={{ fontSize: 13.5, color: C.inkSoft, lineHeight: 1.6 }}>
-              No Safari, toca no botão <strong>Partilhar</strong> (o quadrado com
-              a seta, em baixo) e escolhe <strong>Adicionar ao ecrã principal</strong>.
+              {ehIOS ? (
+                <>
+                  No Safari, toca no botão <strong>Partilhar</strong> (o quadrado
+                  com a seta, em baixo) e escolhe{" "}
+                  <strong>Adicionar ao ecrã principal</strong>.
+                </>
+              ) : (
+                <>
+                  Toca nos <strong>três pontos (⋮)</strong> no canto superior
+                  direito do browser e escolhe{" "}
+                  <strong>Instalar aplicação</strong> ou{" "}
+                  <strong>Adicionar ao ecrã principal</strong>.
+                </>
+              )}
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.line}`, fontSize: 12.5 }}>
+                A plataforma passa a abrir como uma aplicação, com ícone próprio
+                e sem a barra do browser.
+              </div>
             </div>
           </div>
           <div style={{ padding: "16px 24px", borderTop: `1px solid ${C.line}`, display: "flex", justifyContent: "flex-end" }}>
@@ -1585,8 +1607,9 @@ function BotaoInstalar({ estilo }) {
   const [instalado, setInstalado] = useState(false);
   const [mostrarAjudaIOS, setMostrarAjudaIOS] = useState(false);
 
-  const ehIOS = typeof navigator !== "undefined" &&
-    /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  const ehIOS = /iphone|ipad|ipod/i.test(ua);
+  const ehTelemovel = ehIOS || /android/i.test(ua);
   const jaEmApp = typeof window !== "undefined" &&
     (window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone);
 
@@ -1606,10 +1629,12 @@ function BotaoInstalar({ estilo }) {
 
   // Já está instalada, ou o browser não suporta instalação.
   if (jaEmApp || instalado) return null;
-  if (!convite && !ehIOS) return null;
+  // No telemóvel mostra-se sempre (com instruções, se não houver convite do
+  // browser); no computador só quando o browser o oferece.
+  if (!convite && !ehTelemovel) return null;
 
   const instalar = async () => {
-    if (ehIOS) { setMostrarAjudaIOS(true); return; }
+    if (!convite) { setMostrarAjudaIOS(true); return; }
     convite.prompt();
     await convite.userChoice;
     setConvite(null);
@@ -1618,19 +1643,34 @@ function BotaoInstalar({ estilo }) {
   return (
     <>
       <button type="button" onClick={instalar} style={estilo} title="Instalar como aplicação">
-        <Download size={14} /> Instalar aplicação
+        <Download size={14} /> {convite ? "Instalar aplicação" : "Como instalar"}
       </button>
 
       {mostrarAjudaIOS && (
         <Overlay onClose={() => setMostrarAjudaIOS(false)} narrow>
           <div style={{ padding: "22px 24px" }}>
             <div style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, fontSize: 16.5, color: C.ink, marginBottom: 12 }}>
-              Instalar no iPhone
+              {ehIOS ? "Instalar no iPhone" : "Instalar a aplicação"}
             </div>
             <div style={{ fontSize: 13.5, color: C.inkSoft, lineHeight: 1.6 }}>
-              No Safari, toca no botão <strong>Partilhar</strong> (o quadrado com
-              a seta, em baixo) e escolhe <strong>Adicionar ao ecrã principal</strong>.
-              A plataforma passa a abrir como uma aplicação, sem a barra do browser.
+              {ehIOS ? (
+                <>
+                  No Safari, toca no botão <strong>Partilhar</strong> (o quadrado
+                  com a seta, em baixo) e escolhe{" "}
+                  <strong>Adicionar ao ecrã principal</strong>.
+                </>
+              ) : (
+                <>
+                  Toca nos <strong>três pontos (⋮)</strong> no canto superior
+                  direito do browser e escolhe{" "}
+                  <strong>Instalar aplicação</strong> ou{" "}
+                  <strong>Adicionar ao ecrã principal</strong>.
+                </>
+              )}
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.line}`, fontSize: 12.5 }}>
+                A plataforma passa a abrir como uma aplicação, com ícone próprio
+                e sem a barra do browser.
+              </div>
             </div>
           </div>
           <div style={{ padding: "16px 24px", borderTop: `1px solid ${C.line}`, display: "flex", justifyContent: "flex-end" }}>
