@@ -747,12 +747,22 @@ export default function App() {
   const [menuAberto, setMenuAberto] = useState(false);
   const ecraEstreito = useEcraEstreito();
   const tasksRef = useRef([]);
+  // Tarefas automáticas eliminadas de propósito nesta sessão, para não serem
+  // recriadas pelo sincronizador.
+  const tarefasEliminadas = useRef(new Set());
+  const registarTarefaAutoEliminada = (tipo, contactId) => {
+    tarefasEliminadas.current.add(`${tipo}:${contactId}`);
+  };
 
   // mantém as tarefas "automáticas" (Contactar X) sincronizadas com o campo Responsável
   // de cada contacto (artista/espaço/parceiro) — uma por contacto, por tipo
   const syncContactTasks = async (tipo, contactList) => {
     const verbo = TASK_TIPOS[tipo].verbo;
     const base = tasksRef.current || [];
+    // Contactos cuja tarefa automática foi eliminada à mão. Sem isto, o
+    // sincronizador voltava a criá-la logo a seguir e a eliminação não tinha
+    // qualquer efeito.
+    const eliminadas = tarefasEliminadas.current;
     const outros = base.filter((t) => !(t.origem && t.origem.tipo === tipo));
     const existentesPorId = {};
     base.forEach((t) => { if (t.origem && t.origem.tipo === tipo) existentesPorId[t.origem.contactId] = t; });
@@ -760,6 +770,7 @@ export default function App() {
     const auto = [];
     (contactList || []).forEach((c) => {
       if (!c.responsavel) return;
+      if (eliminadas.has(`${tipo}:${c.id}`)) return;
       const existente = existentesPorId[c.id];
       if (existente) {
         auto.push({ ...existente, titulo: `${verbo}: ${c.nome}`, responsavel: c.responsavel, origem: { tipo, contactId: c.id } });
@@ -1484,6 +1495,7 @@ export default function App() {
             members={members}
             remetente={remetente}
             dadosEquipa={dadosEquipa}
+            onTarefaAutoEliminada={registarTarefaAutoEliminada}
           />
         ) : module === "documentos" ? (
           <DocumentosModule
@@ -2299,6 +2311,16 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
       dataProximoContacto: "",
       atualizadoPor: user,
     }));
+    // As tarefas de follow-up dizem respeito a uma fase do seguimento que
+    // deixou de existir: sem isto ficavam na lista a pedir ações sobre
+    // contactos que voltaram ao início.
+    const idsReiniciados = new Set(next.map((a) => a.id));
+    const tarefasSemFollowupsOrfaos = (tasksRef.current || []).filter(
+      (t) => !(t.origem?.evento === "followup" && idsReiniciados.has(t.origem.contactId))
+    );
+    if (tarefasSemFollowupsOrfaos.length !== (tasksRef.current || []).length) {
+      await persistTasks(tarefasSemFollowupsOrfaos);
+    }
     await persistArtists(next);
     setModal(null);
     showToast(`Estado de todos os artistas reiniciado para "Por contactar".`);
@@ -2951,6 +2973,16 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
       dataProximoContacto: "",
       atualizadoPor: user,
     }));
+    // As tarefas de follow-up dizem respeito a uma fase do seguimento que
+    // deixou de existir: sem isto ficavam na lista a pedir ações sobre
+    // contactos que voltaram ao início.
+    const idsReiniciados = new Set(next.map((a) => a.id));
+    const tarefasSemFollowupsOrfaos = (tasksRef.current || []).filter(
+      (t) => !(t.origem?.evento === "followup" && idsReiniciados.has(t.origem.contactId))
+    );
+    if (tarefasSemFollowupsOrfaos.length !== (tasksRef.current || []).length) {
+      await persistTasks(tarefasSemFollowupsOrfaos);
+    }
     await persistSpaces(next);
     setModal(null);
     showToast(`Estado de todos os espaços reiniciado para "Por contactar".`);
@@ -5009,6 +5041,7 @@ function TemplatePreviewModal({ template, onClose }) {
 function TarefasModule({
   tasks, persistTasks, user, showToast, onToggleTask, onSetTaskEstado,
   templates, listByTipo, onResposta, members, remetente, soLeitura, dadosEquipa,
+  onTarefaAutoEliminada,
 }) {
   const [modal, setModal] = useState(null); // 'add' | 'edit' | 'delete'
   const [editing, setEditing] = useState(null);
@@ -5051,6 +5084,11 @@ function TarefasModule({
 
   const confirmDelete = async () => {
     const next = allTasks.filter((t) => t.id !== toDelete.id);
+    // Uma tarefa de primeiro contacto eliminada seria recriada pelo
+    // sincronizador; avisa-se para que a eliminação se mantenha.
+    if (toDelete.origem && !toDelete.origem.evento) {
+      onTarefaAutoEliminada?.(toDelete.origem.tipo, toDelete.origem.contactId);
+    }
     await persistTasks(next);
     showToast(`Tarefa "${toDelete.titulo}" removida.`);
     setModal(null);
@@ -5167,10 +5205,14 @@ function TarefasModule({
                         >
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 6 }}>
                             <div style={{ fontWeight: 600, fontSize: 12.5, color: C.ink, lineHeight: 1.35 }}>{t.titulo}</div>
-                            {!auto && !soLeitura && isLider(user) && (
+                            {/* Também as tarefas automáticas: se um contacto
+                                for reiniciado ou deixar de fazer sentido, a
+                                tarefa gerada tem de poder ser corrigida ou
+                                removida como qualquer outra. */}
+                            {!soLeitura && isLider(user) && (
                               <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
-                                <button onClick={() => { setEditing(t); setModal("edit"); }} style={{ ...iconBtn, width: 22, height: 22 }} title="Editar"><Pencil size={12} /></button>
-                                <button onClick={() => { setToDelete(t); setModal("delete"); }} style={{ ...iconBtn, width: 22, height: 22, color: C.red }} title="Eliminar"><Trash2 size={12} /></button>
+                                <button onClick={(e) => { e.stopPropagation(); setEditing(t); setModal("edit"); }} style={{ ...iconBtn, width: 22, height: 22 }} title="Editar"><Pencil size={12} /></button>
+                                <button onClick={(e) => { e.stopPropagation(); setToDelete(t); setModal("delete"); }} style={{ ...iconBtn, width: 22, height: 22, color: C.red }} title="Eliminar"><Trash2 size={12} /></button>
                               </div>
                             )}
                           </div>
