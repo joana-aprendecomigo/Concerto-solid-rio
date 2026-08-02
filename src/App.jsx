@@ -1558,6 +1558,19 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
       : `${contacto.nome}: fase removida.`);
   };
 
+  // Atribui o responsável a partir da lista. Reservado aos líderes, como na
+  // ficha. Ao mudar o responsável, a tarefa automática de contacto acompanha
+  // (é o syncContactTasks, chamado por persistArtists).
+  const alterarResponsavelRapido = async (contacto, novoResponsavel) => {
+    if ((contacto.responsavel || "") === novoResponsavel) return;
+    const atualizado = { ...contacto, responsavel: novoResponsavel, atualizadoPor: user };
+    if (novoResponsavel) registerMember(novoResponsavel);
+    await persistArtists(list.map((x) => (x.id === contacto.id ? atualizado : x)));
+    showToast(novoResponsavel
+      ? `${contacto.nome} atribuído a ${novoResponsavel}.`
+      : `${contacto.nome}: responsável removido.`);
+  };
+
   const saveArtist = async (data) => {
     // a mudança de estado já fica registada na timeline em tempo real, assim que é feita no
     // separador "Dados" do modal (ver setEstado em ArtistModal) — aqui só persistimos o histórico
@@ -1800,11 +1813,12 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
                         {a.telefone && <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, marginTop: 2 }}><Phone size={11} />{a.telefone}</div>}
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
-                        {a.responsavel ? (
-                          <span style={{ fontSize: 12.5, color: C.ink, fontWeight: 500 }}>{a.responsavel}</span>
-                        ) : (
-                          <span style={{ fontSize: 12.5, color: C.gray, fontStyle: "italic" }}>por atribuir</span>
-                        )}
+                        <ResponsavelSelect
+                          contacto={a}
+                          onChange={alterarResponsavelRapido}
+                          equipa={EQUIPA}
+                          podeEditar={isLider(user)}
+                        />
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
                         <EstadoSelect contacto={a} onChange={alterarEstadoRapido} />
@@ -1957,6 +1971,48 @@ function FaseSelect({ contacto, onChange, disabled }) {
   );
 }
 
+// Responsável, editável na lista por quem tem permissão para atribuir.
+//
+// Só os líderes de equipa podem atribuir trabalho, por isso os restantes veem
+// apenas o nome. Atribuir contactos é das ações mais frequentes de quem
+// coordena e obrigava a abrir a ficha de cada um.
+function ResponsavelSelect({ contacto, onChange, equipa, podeEditar }) {
+  if (!podeEditar) {
+    return contacto.responsavel ? (
+      <span style={{ fontSize: 12.5, color: C.ink, fontWeight: 500 }}>{contacto.responsavel}</span>
+    ) : (
+      <span style={{ fontSize: 12.5, color: C.gray, fontStyle: "italic" }}>por atribuir</span>
+    );
+  }
+  return (
+    <div style={{ position: "relative", display: "inline-flex" }}>
+      <span style={{
+        display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12.5,
+        color: contacto.responsavel ? C.ink : C.gray,
+        fontWeight: contacto.responsavel ? 500 : 400,
+        fontStyle: contacto.responsavel ? "normal" : "italic",
+        whiteSpace: "nowrap", cursor: "pointer",
+      }}>
+        {contacto.responsavel || "por atribuir"}
+        <ChevronRight size={10} style={{ transform: "rotate(90deg)", opacity: 0.5 }} />
+      </span>
+      <select
+        value={contacto.responsavel || ""}
+        onChange={(e) => onChange(contacto, e.target.value)}
+        aria-label={`Responsável por ${contacto.nome}`}
+        title="Atribuir responsável"
+        style={{
+          position: "absolute", inset: 0, width: "100%", height: "100%",
+          opacity: 0, cursor: "pointer", border: "none", appearance: "none",
+        }}
+      >
+        <option value="">Por atribuir</option>
+        {equipa.map((m) => <option key={m} value={m}>{m}</option>)}
+      </select>
+    </div>
+  );
+}
+
 // checkbox simples usado na seleção em massa das listas de contactos (Artistas, Espaços, Parceiros) —
 // mantém a linguagem visual da plataforma, reutilizando os ícones Square / CheckSquare já importados
 function CheckboxToggle({ checked, onChange, title }) {
@@ -2095,6 +2151,19 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
     showToast(novaFase
       ? `${contacto.nome}: ${novaFase}.`
       : `${contacto.nome}: fase removida.`);
+  };
+
+  // Atribui o responsável a partir da lista. Reservado aos líderes, como na
+  // ficha. Ao mudar o responsável, a tarefa automática de contacto acompanha
+  // (é o syncContactTasks, chamado por persistSpaces).
+  const alterarResponsavelRapido = async (contacto, novoResponsavel) => {
+    if ((contacto.responsavel || "") === novoResponsavel) return;
+    const atualizado = { ...contacto, responsavel: novoResponsavel, atualizadoPor: user };
+    if (novoResponsavel) registerMember(novoResponsavel);
+    await persistSpaces(list.map((x) => (x.id === contacto.id ? atualizado : x)));
+    showToast(novoResponsavel
+      ? `${contacto.nome} atribuído a ${novoResponsavel}.`
+      : `${contacto.nome}: responsável removido.`);
   };
 
   const saveSpace = async (data) => {
@@ -2343,11 +2412,12 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top", color: C.inkSoft, fontSize: 12.5, whiteSpace: "nowrap" }}>{a.capacidade || "—"}</td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
-                        {a.responsavel ? (
-                          <span style={{ fontSize: 12.5, color: C.ink, fontWeight: 500 }}>{a.responsavel}</span>
-                        ) : (
-                          <span style={{ fontSize: 12.5, color: C.gray, fontStyle: "italic" }}>por atribuir</span>
-                        )}
+                        <ResponsavelSelect
+                          contacto={a}
+                          onChange={alterarResponsavelRapido}
+                          equipa={EQUIPA}
+                          podeEditar={isLider(user)}
+                        />
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
                         <EstadoSelect contacto={a} onChange={alterarEstadoRapido} />
@@ -2906,7 +2976,9 @@ function TimelineEventModal({ evento, onClose, onEdit }) {
 /* ---------- espaço add/edit modal ---------- */
 function EspacoModal({ data, members, existingList, onClose, onSave, isNew, templates, user, onSendEmail, onResposta, onAddNota, onEditEvento }) {
   const [form, setForm] = useState({ ...data, historico: data.historico || [] });
-  const [tab, setTab] = useState(isNew ? "dados" : "historico"); // 'dados' | 'historico' — a Timeline é a vista principal da ficha
+  // Abre sempre nos dados: quem clica no lápis quer editar o contacto, não
+  // consultar o histórico. A Timeline fica a um clique de distância.
+  const [tab, setTab] = useState("dados"); // 'dados' | 'historico'
   const [avisoDuplicado, setAvisoDuplicado] = useState(null); // espaço já existente com o mesmo nome, a aguardar confirmação
   const set = (k, v) => {
     setForm((f) => ({ ...f, [k]: v }));
@@ -3132,6 +3204,19 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
     showToast(novaFase
       ? `${contacto.nome}: ${novaFase}.`
       : `${contacto.nome}: fase removida.`);
+  };
+
+  // Atribui o responsável a partir da lista. Reservado aos líderes, como na
+  // ficha. Ao mudar o responsável, a tarefa automática de contacto acompanha
+  // (é o syncContactTasks, chamado por persistPartners).
+  const alterarResponsavelRapido = async (contacto, novoResponsavel) => {
+    if ((contacto.responsavel || "") === novoResponsavel) return;
+    const atualizado = { ...contacto, responsavel: novoResponsavel, atualizadoPor: user };
+    if (novoResponsavel) registerMember(novoResponsavel);
+    await persistPartners(list.map((x) => (x.id === contacto.id ? atualizado : x)));
+    showToast(novoResponsavel
+      ? `${contacto.nome} atribuído a ${novoResponsavel}.`
+      : `${contacto.nome}: responsável removido.`);
   };
 
   const savePartner = async (data) => {
@@ -3366,11 +3451,12 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top", color: C.inkSoft, fontSize: 12.5, maxWidth: 220 }}>{a.contributo || "—"}</td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
-                        {a.responsavel ? (
-                          <span style={{ fontSize: 12.5, color: C.ink, fontWeight: 500 }}>{a.responsavel}</span>
-                        ) : (
-                          <span style={{ fontSize: 12.5, color: C.gray, fontStyle: "italic" }}>por atribuir</span>
-                        )}
+                        <ResponsavelSelect
+                          contacto={a}
+                          onChange={alterarResponsavelRapido}
+                          equipa={EQUIPA}
+                          podeEditar={isLider(user)}
+                        />
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
                         <EstadoSelect contacto={a} onChange={alterarEstadoRapido} />
@@ -3440,7 +3526,9 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
 /* ---------- parceiro add/edit modal ---------- */
 function ParceiroModal({ data, members, existingList, onClose, onSave, isNew, templates, user, onSendEmail, onResposta, onAddNota, onEditEvento }) {
   const [form, setForm] = useState({ ...data, historico: data.historico || [] });
-  const [tab, setTab] = useState(isNew ? "dados" : "historico"); // 'dados' | 'historico' — a Timeline é a vista principal da ficha
+  // Abre sempre nos dados: quem clica no lápis quer editar o contacto, não
+  // consultar o histórico. A Timeline fica a um clique de distância.
+  const [tab, setTab] = useState("dados"); // 'dados' | 'historico'
   const [avisoDuplicado, setAvisoDuplicado] = useState(null); // parceiro já existente com o mesmo nome, a aguardar confirmação
   const set = (k, v) => {
     setForm((f) => ({ ...f, [k]: v }));
@@ -3580,7 +3668,9 @@ function ParceiroModal({ data, members, existingList, onClose, onSave, isNew, te
 /* ---------- artist add/edit modal ---------- */
 function ArtistModal({ data, members, existingList, onClose, onSave, isNew, templates, user, onSendEmail, onResposta, onAddNota, onEditEvento }) {
   const [form, setForm] = useState({ ...data, historico: data.historico || [] });
-  const [tab, setTab] = useState(isNew ? "dados" : "historico"); // 'dados' | 'historico' — a Timeline é a vista principal da ficha
+  // Abre sempre nos dados: quem clica no lápis quer editar o contacto, não
+  // consultar o histórico. A Timeline fica a um clique de distância.
+  const [tab, setTab] = useState("dados"); // 'dados' | 'historico'
   const [avisoDuplicado, setAvisoDuplicado] = useState(null); // artista já existente com o mesmo nome, a aguardar confirmação
   const set = (k, v) => {
     setForm((f) => ({ ...f, [k]: v }));
