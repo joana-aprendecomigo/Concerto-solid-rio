@@ -1,13 +1,15 @@
-// Shim for the sandboxed `window.storage` API this component was originally written against,
-// backed by the browser's localStorage so it runs standalone.
-if (typeof window !== "undefined" && !window.storage) {
+// Implementação de `window.storage` sobre o localStorage do browser.
+//
+// Usada quando não há credenciais do Supabase: a plataforma funciona, mas os
+// dados ficam só neste computador e não são partilhados com a equipa.
+
+export function instalarStorageLocal() {
   window.storage = {
-    async get(key) {
-      const value = window.localStorage.getItem(key);
-      return { value };
+    async get(chave) {
+      return { value: window.localStorage.getItem(chave) };
     },
-    async set(key, value) {
-      window.localStorage.setItem(key, value);
+    async set(chave, valor) {
+      window.localStorage.setItem(chave, valor);
       return true;
     },
   };

@@ -1,0 +1,182 @@
+-- ============================================================================
+-- Row Level Security — versão restrita (para quando houver autenticação)
+-- ============================================================================
+--
+-- NÃO APLICAR AINDA. Este ficheiro termina em `.disabled` de propósito: se for
+-- aplicado enquanto o login for só a escolha de um nome, ninguém consegue ler
+-- nem escrever nada (todos os pedidos chegam como `anon`, sem identidade) e a
+-- plataforma deixa de funcionar.
+--
+-- Como ativar, quando houver contas a sério:
+--   1. Criar utilizadores em Authentication → Users no Supabase.
+--   2. Ligar cada um ao seu perfil:
+--        update profiles set user_id = '<uuid do utilizador>' where nome = 'Ana';
+--   3. Confirmar que os líderes têm role = 'lider'.
+--   4. Remover o sufixo `.disabled` e correr esta migration.
+--
+-- Regras codificadas aqui (as mesmas que o interface já aplica):
+--   · Toda a equipa autenticada lê tudo — é uma ferramenta colaborativa.
+--   · Só líderes atribuem/alteram o responsável de um contacto.
+--   · Membros editam os contactos que lhes estão atribuídos.
+--   · Só líderes criam, apagam ou reatribuem tarefas.
+--   · Membros mudam o estado das suas próprias tarefas (concluir trabalho).
+--   · A timeline não se reescreve: eventos criam-se, não se apagam.
+-- ============================================================================
+
+-- Remover as políticas abertas da migration 0002.
+drop policy if exists aberto_profiles       on profiles;
+drop policy if exists aberto_contacts       on contacts;
+drop policy if exists aberto_contact_events on contact_events;
+drop policy if exists aberto_templates      on templates;
+drop policy if exists aberto_tasks          on tasks;
+drop policy if exists aberto_documents      on documents;
+
+-- ---------------------------------------------------------------------------
+-- profiles
+-- ---------------------------------------------------------------------------
+
+create policy profiles_leitura on profiles
+  for select to authenticated using (true);
+
+-- Só líderes mexem na composição da equipa e nos papéis.
+create policy profiles_gestao_lideres on profiles
+  for all to authenticated using (e_lider()) with check (e_lider());
+
+-- ---------------------------------------------------------------------------
+-- contacts
+-- ---------------------------------------------------------------------------
+
+create policy contacts_leitura on contacts
+  for select to authenticated using (true);
+
+create policy contacts_criar on contacts
+  for insert to authenticated
+  with check (
+    -- ao criar, só um líder pode já deixar um responsável atribuído
+    responsavel is null or e_lider()
+  );
+
+create policy contacts_editar on contacts
+  for update to authenticated
+  using (e_lider() or responsavel = membro_atual())
+  with check (e_lider() or responsavel = membro_atual());
+
+create policy contacts_apagar on contacts
+  for delete to authenticated using (e_lider());
+
+-- Impede que um membro se atribua contactos a si próprio (ou os passe a outro):
+-- a coluna `responsavel` só muda por mão de um líder.
+create or replace function proteger_responsavel_contacto()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.responsavel is distinct from old.responsavel and not e_lider() then
+    raise exception 'Apenas os líderes de equipa podem atribuir responsáveis.';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger contacts_proteger_responsavel
+  before update on contacts
+  for each row execute function proteger_responsavel_contacto();
+
+-- ---------------------------------------------------------------------------
+-- contact_events — a timeline é um registo histórico
+-- ---------------------------------------------------------------------------
+
+create policy contact_events_leitura on contact_events
+  for select to authenticated using (true);
+
+create policy contact_events_criar on contact_events
+  for insert to authenticated with check (true);
+
+-- Editar só as observações do próprio evento (o histórico de edições fica
+-- guardado na coluna `edicoes`); líderes podem corrigir qualquer um.
+create policy contact_events_editar on contact_events
+  for update to authenticated
+  using (e_lider() or autor = membro_atual())
+  with check (e_lider() or autor = membro_atual());
+
+-- Sem política de DELETE: a timeline não se apaga, nem por líderes.
+
+-- ---------------------------------------------------------------------------
+-- templates — material partilhado; qualquer membro melhora, só líderes apagam
+-- ---------------------------------------------------------------------------
+
+create policy templates_leitura on templates
+  for select to authenticated using (true);
+
+create policy templates_criar on templates
+  for insert to authenticated with check (true);
+
+create policy templates_editar on templates
+  for update to authenticated using (true) with check (true);
+
+create policy templates_apagar on templates
+  for delete to authenticated using (e_lider());
+
+-- ---------------------------------------------------------------------------
+-- tasks
+-- ---------------------------------------------------------------------------
+
+create policy tasks_leitura on tasks
+  for select to authenticated using (true);
+
+create policy tasks_criar_lideres on tasks
+  for insert to authenticated with check (e_lider());
+
+-- Líderes gerem tudo; membros mexem apenas nas tarefas que lhes pertencem.
+create policy tasks_editar on tasks
+  for update to authenticated
+  using (e_lider() or responsavel = membro_atual())
+  with check (e_lider() or responsavel = membro_atual());
+
+create policy tasks_apagar_lideres on tasks
+  for delete to authenticated using (e_lider());
+
+-- Um membro pode concluir a sua tarefa, mas não passá-la a outra pessoa nem
+-- alterar o que lhe foi pedido.
+create or replace function proteger_atribuicao_tarefa()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not e_lider() then
+    if new.responsavel is distinct from old.responsavel then
+      raise exception 'Apenas os líderes de equipa podem reatribuir tarefas.';
+    end if;
+    if new.titulo is distinct from old.titulo
+       or new.data_limite is distinct from old.data_limite
+       or new.prioridade is distinct from old.prioridade then
+      raise exception 'Apenas os líderes de equipa podem editar tarefas.';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+create trigger tasks_proteger_atribuicao
+  before update on tasks
+  for each row execute function proteger_atribuicao_tarefa();
+
+-- ---------------------------------------------------------------------------
+-- documents — repositório partilhado da equipa
+-- ---------------------------------------------------------------------------
+
+create policy documents_leitura on documents
+  for select to authenticated using (true);
+
+create policy documents_criar on documents
+  for insert to authenticated with check (true);
+
+create policy documents_editar on documents
+  for update to authenticated using (true) with check (true);
+
+create policy documents_apagar on documents
+  for delete to authenticated using (e_lider());
