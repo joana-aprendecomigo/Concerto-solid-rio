@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import * as XLSX from "xlsx";
 import {
-  listarMembros, definirCodigo, entrar, sair, membroComSessao, COMPRIMENTO_MINIMO,
+  listarMembros, definirCodigo, entrar, sair, membroComSessao, mudarCodigo, COMPRIMENTO_MINIMO,
 } from "./lib/auth.js";
 import {
   Music2, Users, Search, Plus, Pencil, Trash2, LogOut,
@@ -1549,10 +1549,93 @@ function EcraEntrada({ onEntrou }) {
   );
 }
 
+// Mudar o próprio código de acesso.
+//
+// Pede o código atual antes de mudar: sem isso, bastava apanhar uma sessão
+// aberta num computador para trocar o código e ficar com o perfil.
+function ModalMudarCodigo({ nome, onFechar }) {
+  const [atual, setAtual] = useState("");
+  const [novo, setNovo] = useState("");
+  const [confirmacao, setConfirmacao] = useState("");
+  const [erro, setErro] = useState("");
+  const [ocupado, setOcupado] = useState(false);
+  const [feito, setFeito] = useState(false);
+
+  const submeter = async (e) => {
+    e.preventDefault();
+    setErro("");
+    if (novo !== confirmacao) {
+      setErro("Os códigos novos não coincidem.");
+      return;
+    }
+    setOcupado(true);
+    try {
+      await mudarCodigo(nome, atual, novo);
+      setFeito(true);
+    } catch (err) {
+      setErro(err.message || "Não foi possível mudar o código.");
+    } finally {
+      setOcupado(false);
+    }
+  };
+
+  return (
+    <Overlay onClose={onFechar} narrow>
+      <div style={{ padding: "20px 24px", borderBottom: `1px solid ${C.line}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, fontSize: 17, color: C.ink }}>
+          Mudar o meu código
+        </div>
+        <button onClick={onFechar} style={iconBtn}><X size={17} /></button>
+      </div>
+
+      {feito ? (
+        <>
+          <div style={{ padding: "22px 24px", display: "flex", alignItems: "flex-start", gap: 12 }}>
+            <CheckCircle2 size={20} color={C.green} style={{ flexShrink: 0, marginTop: 1 }} />
+            <div style={{ fontSize: 13.5, color: C.ink, lineHeight: 1.5 }}>
+              Código alterado. Passas a entrar com o código novo — guarda-o bem,
+              porque ninguém o consegue consultar.
+            </div>
+          </div>
+          <div style={{ padding: "16px 24px", borderTop: `1px solid ${C.line}`, display: "flex", justifyContent: "flex-end" }}>
+            <button type="button" onClick={onFechar} style={btnPrimary}>Fechar</button>
+          </div>
+        </>
+      ) : (
+        <form onSubmit={submeter}>
+          <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 12 }}>
+            <Field label="Código atual">
+              <input type="password" autoFocus required style={inputStyle} value={atual} onChange={(e) => setAtual(e.target.value)} />
+            </Field>
+            <Field label={`Código novo (mín. ${COMPRIMENTO_MINIMO} caracteres)`}>
+              <input type="password" required style={inputStyle} value={novo} onChange={(e) => setNovo(e.target.value)} />
+            </Field>
+            <Field label="Repete o código novo">
+              <input type="password" required style={inputStyle} value={confirmacao} onChange={(e) => setConfirmacao(e.target.value)} />
+            </Field>
+            {erro && (
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "9px 12px", borderRadius: 9, background: C.redBg, color: C.red, fontSize: 12.5, fontWeight: 500 }}>
+                <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} /> {erro}
+              </div>
+            )}
+          </div>
+          <div style={{ padding: "16px 24px", borderTop: `1px solid ${C.line}`, display: "flex", justifyContent: "flex-end", gap: 10 }}>
+            <button type="button" onClick={onFechar} style={btnGhost} disabled={ocupado}>Cancelar</button>
+            <button type="submit" style={{ ...btnPrimary, opacity: ocupado ? 0.6 : 1 }} disabled={ocupado}>
+              {ocupado ? "A mudar…" : "Mudar código"}
+            </button>
+          </div>
+        </form>
+      )}
+    </Overlay>
+  );
+}
+
 /* ---------- sidebar ---------- */
 // `flutuante` = ecrã estreito: o menu abre por cima do conteúdo em vez de
 // ocupar uma coluna permanente, que num telemóvel comeria metade da largura.
 function Sidebar({ module, setModuleKey, user, onSair, showToast, flutuante, onFechar }) {
+  const [mudarCodigoAberto, setMudarCodigoAberto] = useState(false);
   return (
     <>
       {flutuante && (
@@ -1565,7 +1648,9 @@ function Sidebar({ module, setModuleKey, user, onSair, showToast, flutuante, onF
       width: 232, background: C.sidebar, color: "#fff", display: "flex", flexDirection: "column",
       padding: "24px 16px", flexShrink: 0, borderRadius: "0",
       position: flutuante ? "fixed" : "sticky",
-      top: 0, left: 0, height: "100vh",
+      // `dvh` acompanha a área realmente visível: com `vh`, as barras do
+      // browser empurravam o rodapé (nome + Sair) para fora do ecrã.
+      top: 0, left: 0, height: "100dvh", maxHeight: "100dvh",
       // A barra em si não rola — só a lista de módulos, mais abaixo. Assim o
       // nome e o botão "Sair" ficam sempre à vista, em vez de serem empurrados
       // para fora do ecrã quando há módulos a mais.
@@ -1609,6 +1694,25 @@ function Sidebar({ module, setModuleKey, user, onSair, showToast, flutuante, onF
             </button>
           );
         })}
+
+        {/* Terminar sessão fica junto aos módulos, e não só no rodapé: em
+            janelas baixas o rodapé podia ficar fora da área visível, e era
+            preciso rolar o menu para o encontrar. */}
+        <button
+          onClick={onSair}
+          title="Terminar sessão"
+          style={{
+            display: "flex", alignItems: "center", gap: 10, padding: "9px 10px", borderRadius: 9,
+            background: "transparent", border: "none", color: "#FF8A9B",
+            fontSize: 13.5, fontWeight: 600, cursor: "pointer", textAlign: "left",
+            fontFamily: "Inter, sans-serif", width: "100%", marginTop: 6,
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,138,155,0.12)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+        >
+          <LogOut size={15} style={{ flexShrink: 0 }} />
+          <span style={{ flex: 1 }}>Sair</span>
+        </button>
       </div>
 
       {/* Rodapé sempre visível: é a lista de módulos que rola, não a barra. */}
@@ -1616,22 +1720,24 @@ function Sidebar({ module, setModuleKey, user, onSair, showToast, flutuante, onF
         <div style={{ width: 28, height: 28, borderRadius: 999, background: "rgba(255,255,255,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12.5, fontWeight: 700, flexShrink: 0 }}>
           {user.slice(0, 1).toUpperCase()}
         </div>
+        {/* Só o nome: o botão de sair está agora junto aos módulos, onde se
+            alcança sem rolar. */}
         <div style={{ fontSize: 13, fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user}</div>
-        {/* Com texto, e não só o ícone: um símbolo sozinho não se lê como
-            "terminar sessão", sobretudo agora que há códigos de acesso. */}
         <button
-          onClick={onSair}
-          title="Terminar sessão"
+          onClick={() => setMudarCodigoAberto(true)}
+          title="Mudar o meu código"
           style={{
-            display: "flex", alignItems: "center", gap: 5, background: "rgba(255,255,255,0.08)",
-            border: "1px solid rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.75)",
-            cursor: "pointer", padding: "5px 9px", borderRadius: 8, fontSize: 11.5,
-            fontWeight: 600, fontFamily: "Inter, sans-serif", flexShrink: 0,
+            background: "transparent", border: "none", color: "rgba(255,255,255,0.4)",
+            cursor: "pointer", padding: 4, display: "flex", alignItems: "center", flexShrink: 0,
           }}
         >
-          <LogOut size={13} /> Sair
+          <Pencil size={13} />
         </button>
       </div>
+
+      {mudarCodigoAberto && (
+        <ModalMudarCodigo nome={user} onFechar={() => setMudarCodigoAberto(false)} />
+      )}
     </div>
     </>
   );

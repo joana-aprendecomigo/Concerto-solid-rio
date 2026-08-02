@@ -91,6 +91,31 @@ export async function sair() {
   await supabase.auth.signOut();
 }
 
+/**
+ * Muda o código de quem tem sessão iniciada.
+ *
+ * Pede o código atual antes de mudar: sem isso, bastava alguém apanhar uma
+ * sessão aberta num computador para trocar o código e tomar conta do perfil.
+ */
+export async function mudarCodigo(nome, codigoAtual, codigoNovo) {
+  if (!codigoNovo || codigoNovo.length < COMPRIMENTO_MINIMO) {
+    throw new Error(`O código tem de ter pelo menos ${COMPRIMENTO_MINIMO} caracteres.`);
+  }
+  if (codigoNovo === codigoAtual) {
+    throw new Error("O código novo é igual ao atual.");
+  }
+
+  // Confirma o código atual voltando a autenticar.
+  const { error: erroAtual } = await supabase.auth.signInWithPassword({
+    email: emailDoNome(nome),
+    password: codigoAtual,
+  });
+  if (erroAtual) throw new Error("O código atual está incorreto.");
+
+  const { error } = await supabase.auth.updateUser({ password: codigoNovo });
+  if (error) throw error;
+}
+
 /** Nome do membro com sessão iniciada, ou null. */
 export async function membroComSessao() {
   const { data } = await supabase.auth.getSession();
