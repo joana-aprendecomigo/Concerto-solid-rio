@@ -40,6 +40,13 @@ const TIPO_POR_CHAVE = {
 // Última versão lida de cada chave, para calcular diferenças na escrita.
 const cache = new Map();
 
+// Momento da última gravação feita nesta sessão. O Realtime devolve também as
+// alterações que nós próprios fazemos; sem isto, gravar levava a aplicação a
+// recarregar-se e a voltar ao ecrã inicial a cada edição.
+let ultimaEscritaLocal = 0;
+export const escreveuAgora = () => ultimaEscritaLocal;
+export const marcarEscritaLocal = () => { ultimaEscritaLocal = Date.now(); };
+
 const porId = (lista) => new Map((lista || []).map((x) => [x.id, x]));
 
 // ---------------------------------------------------------------------------
@@ -294,6 +301,7 @@ export function instalarStorageSupabase() {
       const valor = JSON.parse(valorJSON);
       await guardar(chave, valor);
       cache.set(chave, valor);
+      marcarEscritaLocal();
 
       // Avisa a interface se alguém tiver alterado os mesmos contactos
       // entretanto. A gravação foi feita (só dos campos que esta pessoa

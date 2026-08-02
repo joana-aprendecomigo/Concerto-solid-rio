@@ -71,8 +71,15 @@ export default function AppComRealtime() {
   useEffect(() => {
     if (!supabaseConfigurado) return;
 
-    // Há edição em curso? (modal aberto ou campo com foco)
-    const aEditar = () => {
+    // Recarregar substitui a aplicação inteira, o que apaga pesquisas, filtros
+    // e posição na página. Só o fazemos quando a pessoa está mesmo parada.
+    let ultimaAtividade = Date.now();
+    const marcarAtividade = () => { ultimaAtividade = Date.now(); };
+    ["mousedown", "keydown", "scroll", "touchstart"].forEach((ev) =>
+      window.addEventListener(ev, marcarAtividade, { passive: true })
+    );
+
+    const ocupado = () => {
       const activo = document.activeElement;
       const emCampo =
         activo &&
@@ -80,23 +87,25 @@ export default function AppComRealtime() {
           activo.tagName === "TEXTAREA" ||
           activo.tagName === "SELECT" ||
           activo.isContentEditable);
-      // Os modais da plataforma são overlays com position:fixed e z-index alto.
       const modalAberto = document.querySelector('[data-modal-aberto="true"]');
-      return Boolean(emCampo || modalAberto);
+      // Mexeu em alguma coisa nos últimos segundos: provavelmente está a meio
+      // de uma tarefa e não quer a página a saltar-lhe debaixo dos olhos.
+      const acabouDeMexer = Date.now() - ultimaAtividade < 5000;
+      return Boolean(emCampo || modalAberto || acabouDeMexer);
     };
 
     let timer = null;
     const tentarAtualizar = () => {
       clearTimeout(timer);
       timer = setTimeout(() => {
-        if (aEditar()) {
+        if (ocupado()) {
           pendente.current = true;
           tentarAtualizar(); // volta a tentar mais tarde
           return;
         }
         pendente.current = false;
         setVersao((v) => v + 1);
-      }, 1200);
+      }, 1500);
     };
 
     const cancelar = ouvirAlteracoes(() => tentarAtualizar());
@@ -104,6 +113,9 @@ export default function AppComRealtime() {
     return () => {
       clearTimeout(timer);
       cancelar();
+      ["mousedown", "keydown", "scroll", "touchstart"].forEach((ev) =>
+        window.removeEventListener(ev, marcarAtividade)
+      );
     };
   }, []);
 

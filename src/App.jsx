@@ -644,7 +644,12 @@ export default function App() {
   // apareceria e desapareceria num piscar de olhos, o que incomoda mais do que
   // ajuda.
   const [mostrarEspera, setMostrarEspera] = useState(false);
-  const [user, setUser] = useState(null);
+  // O utilizador e o módulo sobrevivem a uma remontagem (que acontece quando
+  // chegam alterações de outra pessoa) e a um F5 acidental — sem isto, cada
+  // sincronização atirava a pessoa de volta para o ecrã de entrada.
+  const [user, setUser] = useState(() => {
+    try { return window.sessionStorage.getItem("ymec_user") || null; } catch { return null; }
+  });
   const [members, setMembers] = useState([]);
   const [artists, setArtists] = useState(null);
   const [spaces, setSpaces] = useState(null);
@@ -652,7 +657,9 @@ export default function App() {
   const [templates, setTemplates] = useState(null);
   const [tasks, setTasks] = useState(null);
   const [documents, setDocuments] = useState(null);
-  const [module, setModuleKey] = useState("artistas");
+  const [module, setModuleKey] = useState(() => {
+    try { return window.sessionStorage.getItem("ymec_module") || "artistas"; } catch { return "artistas"; }
+  });
   const [toast, setToast] = useState(null);
   const [menuAberto, setMenuAberto] = useState(false);
   const ecraEstreito = useEcraEstreito();
@@ -701,6 +708,19 @@ export default function App() {
     const t = setTimeout(() => setMostrarEspera(true), 500);
     return () => clearTimeout(t);
   }, []);
+
+  // Memoriza quem entrou e em que módulo está, para a escolha resistir às
+  // remontagens provocadas pela sincronização.
+  useEffect(() => {
+    try {
+      if (user) window.sessionStorage.setItem("ymec_user", user);
+      else window.sessionStorage.removeItem("ymec_user");
+    } catch {}
+  }, [user]);
+
+  useEffect(() => {
+    try { window.sessionStorage.setItem("ymec_module", module); } catch {}
+  }, [module]);
 
   useEffect(() => {
     (async () => {

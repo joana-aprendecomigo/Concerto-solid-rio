@@ -11,7 +11,11 @@
 // ============================================================================
 
 import { supabase } from "./supabase.js";
-import { CHAVES, limparCache } from "./storageSupabase.js";
+import { CHAVES, limparCache, escreveuAgora } from "./storageSupabase.js";
+
+// Janela, depois de gravarmos, durante a qual as notificações do Realtime são
+// tratadas como eco das nossas próprias alterações e não provocam releitura.
+const ECO_MS = 3000;
 
 // Que chaves do interface são afetadas por cada tabela.
 const CHAVES_AFETADAS = {
@@ -47,7 +51,12 @@ export function ouvirAlteracoes(aoMudar) {
     timer = setTimeout(() => {
       const chaves = [...pendentes];
       pendentes = new Set();
-      if (chaves.length) aoMudar(chaves);
+      if (!chaves.length) return;
+      // Se acabámos de gravar, esta notificação é o eco da nossa própria
+      // alteração: o estado no ecrã já está correto e recarregar só faria a
+      // aplicação saltar para o início.
+      if (Date.now() - escreveuAgora() < ECO_MS) return;
+      aoMudar(chaves);
     }, 250);
   };
 
