@@ -747,22 +747,12 @@ export default function App() {
   const [menuAberto, setMenuAberto] = useState(false);
   const ecraEstreito = useEcraEstreito();
   const tasksRef = useRef([]);
-  // Tarefas automáticas eliminadas de propósito nesta sessão, para não serem
-  // recriadas pelo sincronizador.
-  const tarefasEliminadas = useRef(new Set());
-  const registarTarefaAutoEliminada = (tipo, contactId) => {
-    tarefasEliminadas.current.add(`${tipo}:${contactId}`);
-  };
 
   // mantém as tarefas "automáticas" (Contactar X) sincronizadas com o campo Responsável
   // de cada contacto (artista/espaço/parceiro) — uma por contacto, por tipo
   const syncContactTasks = async (tipo, contactList) => {
     const verbo = TASK_TIPOS[tipo].verbo;
     const base = tasksRef.current || [];
-    // Contactos cuja tarefa automática foi eliminada à mão. Sem isto, o
-    // sincronizador voltava a criá-la logo a seguir e a eliminação não tinha
-    // qualquer efeito.
-    const eliminadas = tarefasEliminadas.current;
     const outros = base.filter((t) => !(t.origem && t.origem.tipo === tipo));
     const existentesPorId = {};
     base.forEach((t) => { if (t.origem && t.origem.tipo === tipo) existentesPorId[t.origem.contactId] = t; });
@@ -770,7 +760,10 @@ export default function App() {
     const auto = [];
     (contactList || []).forEach((c) => {
       if (!c.responsavel) return;
-      if (eliminadas.has(`${tipo}:${c.id}`)) return;
+      // A equipa eliminou esta tarefa de propósito. A marca vive no contacto,
+      // na base de dados: se ficasse só no browser de quem eliminou, a tarefa
+      // reapareceria para os restantes.
+      if (c.tarefaAutoDispensada) return;
       const existente = existentesPorId[c.id];
       if (existente) {
         auto.push({ ...existente, titulo: `${verbo}: ${c.nome}`, responsavel: c.responsavel, origem: { tipo, contactId: c.id } });
@@ -1028,6 +1021,20 @@ export default function App() {
   // por isso nunca há informação duplicada ou dessincronizada entre as duas vistas.
   const persistByTipo = { artista: persistArtists, espaco: persistSpaces, parceiro: persistPartners };
   const listByTipo = { artista: artists, espaco: spaces, parceiro: partners };
+
+  // Marca o contacto para a sua tarefa automática não voltar a ser criada.
+  // Fica gravado na base de dados, para a decisão valer para toda a equipa e
+  // sobreviver a recarregar a página.
+  const dispensarTarefaAuto = async (tipo, contactId) => {
+    const persist = persistByTipo[tipo];
+    const lista = listByTipo[tipo] || [];
+    const contacto = lista.find((c) => c.id === contactId);
+    if (!persist || !contacto) return;
+    await persist(lista.map((c) => (
+      c.id === contactId ? { ...c, tarefaAutoDispensada: true, atualizadoPor: user } : c
+    )));
+  };
+
 
   // template correspondente a uma fase concreta (mesma categoria do tipo de contacto)
   const templateDaFase = (tipo, fase) => {
@@ -1495,7 +1502,7 @@ export default function App() {
             members={members}
             remetente={remetente}
             dadosEquipa={dadosEquipa}
-            onTarefaAutoEliminada={registarTarefaAutoEliminada}
+            onTarefaAutoEliminada={dispensarTarefaAuto}
           />
         ) : module === "documentos" ? (
           <DocumentosModule
@@ -5087,7 +5094,7 @@ function TarefasModule({
     // Uma tarefa de primeiro contacto eliminada seria recriada pelo
     // sincronizador; avisa-se para que a eliminação se mantenha.
     if (toDelete.origem && !toDelete.origem.evento) {
-      onTarefaAutoEliminada?.(toDelete.origem.tipo, toDelete.origem.contactId);
+      await onTarefaAutoEliminada?.(toDelete.origem.tipo, toDelete.origem.contactId);
     }
     await persistTasks(next);
     showToast(`Tarefa "${toDelete.titulo}" removida.`);

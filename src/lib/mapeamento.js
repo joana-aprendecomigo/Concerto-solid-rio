@@ -28,6 +28,8 @@ export function contactoDaBD(row) {
     dataProximoContacto: ouVazio(row.data_proximo_contacto),
     observacoes: ouVazio(row.observacoes),
     aguardaResposta: Boolean(row.aguarda_resposta),
+    // A equipa eliminou a tarefa automática deste contacto; não recriar.
+    tarefaAutoDispensada: Boolean(row.tarefa_auto_dispensada),
     faseFollowup: row.fase_followup ?? 0,
     dataUltimoEnvio: ouVazio(row.data_ultimo_envio),
     criadoPor: ouVazio(row.criado_por),
@@ -69,6 +71,7 @@ export function contactoParaBD(c, tipo) {
     data_proximo_contacto: data(c.dataProximoContacto),
     observacoes: ouVazio(c.observacoes),
     aguarda_resposta: Boolean(c.aguardaResposta),
+    tarefa_auto_dispensada: Boolean(c.tarefaAutoDispensada),
     fase_followup: c.faseFollowup ?? 0,
     data_ultimo_envio: data(c.dataUltimoEnvio),
     criado_por: c.criadoPor || null,
