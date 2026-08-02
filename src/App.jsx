@@ -1022,6 +1022,35 @@ export default function App() {
   const persistByTipo = { artista: persistArtists, espaco: persistSpaces, parceiro: persistPartners };
   const listByTipo = { artista: artists, espaco: spaces, parceiro: partners };
 
+  /**
+   * Remove as tarefas de follow-up que deixaram de fazer sentido para um
+   * contacto.
+   *
+   * Uma tarefa de follow-up representa "está na altura de insistir com este
+   * contacto, na fase N". Deixa de ser verdade assim que o contacto responde,
+   * é reiniciado, ou chega a um estado final — mas as tarefas ficavam na lista
+   * a pedir ações sobre um fluxo que já não existe.
+   *
+   * `faseAtual` limita a limpeza às fases já ultrapassadas; sem ela, remove
+   * todas (usado quando o fluxo é reiniciado por completo).
+   */
+  const limparFollowupsObsoletos = async (tipo, contactIds, faseAtual = null) => {
+    const ids = new Set(Array.isArray(contactIds) ? contactIds : [contactIds]);
+    const atuais = tasksRef.current || [];
+    const restantes = atuais.filter((t) => {
+      if (t.origem?.evento !== "followup") return true;
+      if (!ids.has(t.origem.contactId)) return true;
+      // Uma tarefa já concluída é registo do que foi feito; não se apaga.
+      if (t.estado === "Concluída") return true;
+      if (faseAtual === null) return false;
+      return t.origem.fase > faseAtual;
+    });
+    if (restantes.length !== atuais.length) {
+      await persistTasks(restantes);
+    }
+    return atuais.length - restantes.length;
+  };
+
   // Marca o contacto para a sua tarefa automática não voltar a ser criada.
   // Fica gravado na base de dados, para a decisão valer para toda a equipa e
   // sobreviver a recarregar a página.
@@ -1098,6 +1127,9 @@ export default function App() {
       const evento = { id: uid(), tipo: "resposta", data: new Date().toISOString(), user };
       const updated = { ...contact, aguardaResposta: false, historico: [evento, ...(contact.historico || [])] };
       await persist(list.map((c) => (c.id === contactId ? updated : c)));
+      // O contacto respondeu: insistir deixou de fazer sentido, e as tarefas
+      // de follow-up pendentes ficariam a pedir isso mesmo.
+      await limparFollowupsObsoletos(tipo, contactId);
       showToast(`Resposta de ${contact.nome} registada — segue para a fase seguinte da negociação.`);
       return updated;
     }
@@ -1162,6 +1194,12 @@ export default function App() {
       const novasTarefas = [];
       for (const contact of list) {
         if (!contact.aguardaResposta || !contact.dataUltimoEnvio) continue;
+        // Um contacto Confirmado ou Recusado está fechado: insistir com ele
+        // seria constrangedor. O `aguardaResposta` sozinho não chega, porque
+        // pode ficar por limpar quando o estado é alterado por outra via.
+        if (ESTADOS_FINAIS.includes(contact.estado)) continue;
+        // A equipa dispensou o acompanhamento automático deste contacto.
+        if (contact.tarefaAutoDispensada) continue;
         const dias = diasDesdeUltimoEnvio(contact);
         const intervalo = intervaloDaFase(tipo, contact.faseFollowup);
         if (dias === null || dias < intervalo) continue;
@@ -1257,6 +1295,14 @@ export default function App() {
     } : t));
     await persistTasks(next);
   };
+  // O fluxo de um contacto foi encerrado ou reiniciado: limpar as tarefas de
+  // follow-up que ficariam a pedir ações de um ciclo que já não existe.
+  const fluxoReiniciadoHandlers = {
+    artista: (id) => limparFollowupsObsoletos("artista", id),
+    espaco: (id) => limparFollowupsObsoletos("espaco", id),
+    parceiro: (id) => limparFollowupsObsoletos("parceiro", id),
+  };
+
   const concluirTarefaHandlers = {
     artista: (id) => concluirTarefaDeContacto("artista", id),
     espaco: (id) => concluirTarefaDeContacto("espaco", id),
@@ -1448,6 +1494,7 @@ export default function App() {
             onAddNota={notaHandlers.artista}
             onEditEvento={editarEventoHandlers.artista}
             onConcluirTarefaContacto={concluirTarefaHandlers.artista}
+            onFluxoReiniciado={fluxoReiniciadoHandlers.artista}
           />
         ) : module === "espacos" ? (
           <EspacosModule
@@ -1463,6 +1510,7 @@ export default function App() {
             onAddNota={notaHandlers.espaco}
             onEditEvento={editarEventoHandlers.espaco}
             onConcluirTarefaContacto={concluirTarefaHandlers.espaco}
+            onFluxoReiniciado={fluxoReiniciadoHandlers.espaco}
           />
         ) : module === "parceiros" ? (
           <ParceirosModule
@@ -1478,6 +1526,7 @@ export default function App() {
             onAddNota={notaHandlers.parceiro}
             onEditEvento={editarEventoHandlers.parceiro}
             onConcluirTarefaContacto={concluirTarefaHandlers.parceiro}
+            onFluxoReiniciado={fluxoReiniciadoHandlers.parceiro}
           />
         ) : module === "templates" ? (
           <TemplatesModule
@@ -2160,7 +2209,7 @@ function ComingSoon({ module }) {
 }
 
 /* ---------- artistas module ---------- */
-function ArtistasModule({ artists, persistArtists, user, members, registerMember, showToast, templates, onResposta, onAddNota, onEditEvento, onConcluirTarefaContacto, soLeitura }) {
+function ArtistasModule({ artists, persistArtists, user, members, registerMember, showToast, templates, onResposta, onAddNota, onEditEvento, onConcluirTarefaContacto, onFluxoReiniciado, soLeitura }) {
   const [search, setSearch] = useState("");
   const [filterEstado, setFilterEstado] = useState("Todos");
   const [filterFase, setFilterFase] = useState("Todas");
@@ -2236,6 +2285,12 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
     };
     await persistArtists(list.map((x) => (x.id === contacto.id ? atualizado : x)));
     if (novoEstado !== "Por contactar") await onConcluirTarefaContacto?.(contacto.id);
+    // Confirmado ou Recusado encerram a negociação, e "Por contactar" recomeça
+    // do zero: em qualquer dos casos as tarefas de follow-up pendentes
+    // referem-se a um fluxo que deixou de existir.
+    if (ESTADOS_FINAIS.includes(novoEstado) || novoEstado === ESTADO_NAO_CONTACTADO) {
+      await onFluxoReiniciado?.(contacto.id);
+    }
     showToast(`${contacto.nome}: estado alterado para "${novoEstado}".`);
   };
 
@@ -2284,6 +2339,11 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
     if (withMeta.responsavel) registerMember(withMeta.responsavel);
     await persistArtists(next);
     if (withMeta.estado !== "Por contactar") await onConcluirTarefaContacto?.(withMeta.id);
+    // Também pela ficha: mudar para um estado final ou de volta a "Por
+    // contactar" torna obsoletas as tarefas de follow-up pendentes.
+    if (ESTADOS_FINAIS.includes(withMeta.estado) || withMeta.estado === ESTADO_NAO_CONTACTADO) {
+      await onFluxoReiniciado?.(withMeta.id);
+    }
     setModal(null);
     setEditing(null);
     showToast(modal === "add" ? `${withMeta.nome} adicionado.` : `${withMeta.nome} atualizado.`);
@@ -2318,16 +2378,9 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
       dataProximoContacto: "",
       atualizadoPor: user,
     }));
-    // As tarefas de follow-up dizem respeito a uma fase do seguimento que
-    // deixou de existir: sem isto ficavam na lista a pedir ações sobre
-    // contactos que voltaram ao início.
-    const idsReiniciados = new Set(next.map((a) => a.id));
-    const tarefasSemFollowupsOrfaos = (tasksRef.current || []).filter(
-      (t) => !(t.origem?.evento === "followup" && idsReiniciados.has(t.origem.contactId))
-    );
-    if (tarefasSemFollowupsOrfaos.length !== (tasksRef.current || []).length) {
-      await persistTasks(tarefasSemFollowupsOrfaos);
-    }
+    // As tarefas de follow-up dizem respeito a fases do seguimento que
+    // deixaram de existir.
+    await onFluxoReiniciado?.(next.map((a) => a.id));
     await persistArtists(next);
     setModal(null);
     showToast(`Estado de todos os artistas reiniciado para "Por contactar".`);
@@ -2824,7 +2877,7 @@ function StatCard({ label, value, icon: Icon, color, onClick, active, title }) {
 }
 
 /* ---------- espaços module ---------- */
-function EspacosModule({ spaces, persistSpaces, user, members, registerMember, showToast, templates, onResposta, onAddNota, onEditEvento, onConcluirTarefaContacto, soLeitura }) {
+function EspacosModule({ spaces, persistSpaces, user, members, registerMember, showToast, templates, onResposta, onAddNota, onEditEvento, onConcluirTarefaContacto, onFluxoReiniciado, soLeitura }) {
   const [search, setSearch] = useState("");
   const [filterEstado, setFilterEstado] = useState("Todos");
   const [filterFase, setFilterFase] = useState("Todas");
@@ -2898,6 +2951,12 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
     };
     await persistSpaces(list.map((x) => (x.id === contacto.id ? atualizado : x)));
     if (novoEstado !== "Por contactar") await onConcluirTarefaContacto?.(contacto.id);
+    // Confirmado ou Recusado encerram a negociação, e "Por contactar" recomeça
+    // do zero: em qualquer dos casos as tarefas de follow-up pendentes
+    // referem-se a um fluxo que deixou de existir.
+    if (ESTADOS_FINAIS.includes(novoEstado) || novoEstado === ESTADO_NAO_CONTACTADO) {
+      await onFluxoReiniciado?.(contacto.id);
+    }
     showToast(`${contacto.nome}: estado alterado para "${novoEstado}".`);
   };
 
@@ -2946,6 +3005,11 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
     if (withMeta.responsavel) registerMember(withMeta.responsavel);
     await persistSpaces(next);
     if (withMeta.estado !== "Por contactar") await onConcluirTarefaContacto?.(withMeta.id);
+    // Também pela ficha: mudar para um estado final ou de volta a "Por
+    // contactar" torna obsoletas as tarefas de follow-up pendentes.
+    if (ESTADOS_FINAIS.includes(withMeta.estado) || withMeta.estado === ESTADO_NAO_CONTACTADO) {
+      await onFluxoReiniciado?.(withMeta.id);
+    }
     setModal(null);
     setEditing(null);
     showToast(modal === "add" ? `${withMeta.nome} adicionado.` : `${withMeta.nome} atualizado.`);
@@ -2980,16 +3044,9 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
       dataProximoContacto: "",
       atualizadoPor: user,
     }));
-    // As tarefas de follow-up dizem respeito a uma fase do seguimento que
-    // deixou de existir: sem isto ficavam na lista a pedir ações sobre
-    // contactos que voltaram ao início.
-    const idsReiniciados = new Set(next.map((a) => a.id));
-    const tarefasSemFollowupsOrfaos = (tasksRef.current || []).filter(
-      (t) => !(t.origem?.evento === "followup" && idsReiniciados.has(t.origem.contactId))
-    );
-    if (tarefasSemFollowupsOrfaos.length !== (tasksRef.current || []).length) {
-      await persistTasks(tarefasSemFollowupsOrfaos);
-    }
+    // As tarefas de follow-up dizem respeito a fases do seguimento que
+    // deixaram de existir.
+    await onFluxoReiniciado?.(next.map((a) => a.id));
     await persistSpaces(next);
     setModal(null);
     showToast(`Estado de todos os espaços reiniciado para "Por contactar".`);
@@ -3909,7 +3966,7 @@ function EspacoModal({ data, members, existingList, onClose, onSave, isNew, temp
 }
 
 /* ---------- parceiros module ---------- */
-function ParceirosModule({ partners, persistPartners, user, members, registerMember, showToast, templates, onResposta, onAddNota, onEditEvento, onConcluirTarefaContacto, soLeitura }) {
+function ParceirosModule({ partners, persistPartners, user, members, registerMember, showToast, templates, onResposta, onAddNota, onEditEvento, onConcluirTarefaContacto, onFluxoReiniciado, soLeitura }) {
   const [search, setSearch] = useState("");
   const [filterCategoria, setFilterCategoria] = useState("Todas");
   const [filterEstado, setFilterEstado] = useState("Todos");
@@ -3985,6 +4042,12 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
     };
     await persistPartners(list.map((x) => (x.id === contacto.id ? atualizado : x)));
     if (novoEstado !== "Por contactar") await onConcluirTarefaContacto?.(contacto.id);
+    // Confirmado ou Recusado encerram a negociação, e "Por contactar" recomeça
+    // do zero: em qualquer dos casos as tarefas de follow-up pendentes
+    // referem-se a um fluxo que deixou de existir.
+    if (ESTADOS_FINAIS.includes(novoEstado) || novoEstado === ESTADO_NAO_CONTACTADO) {
+      await onFluxoReiniciado?.(contacto.id);
+    }
     showToast(`${contacto.nome}: estado alterado para "${novoEstado}".`);
   };
 
@@ -4033,6 +4096,11 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
     if (withMeta.responsavel) registerMember(withMeta.responsavel);
     await persistPartners(next);
     if (withMeta.estado !== "Por contactar") await onConcluirTarefaContacto?.(withMeta.id);
+    // Também pela ficha: mudar para um estado final ou de volta a "Por
+    // contactar" torna obsoletas as tarefas de follow-up pendentes.
+    if (ESTADOS_FINAIS.includes(withMeta.estado) || withMeta.estado === ESTADO_NAO_CONTACTADO) {
+      await onFluxoReiniciado?.(withMeta.id);
+    }
     setModal(null);
     setEditing(null);
     showToast(modal === "add" ? `${withMeta.nome} adicionado.` : `${withMeta.nome} atualizado.`);
