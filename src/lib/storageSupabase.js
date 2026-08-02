@@ -252,7 +252,18 @@ async function guardarSimples(chave, tabela, novos, paraBD) {
   });
   if (paraGravar.length) {
     const { error } = await supabase.from(tabela).upsert(paraGravar.map(paraBD));
-    if (error) throw error;
+    if (error) {
+      // As tarefas automáticas (primeiro contacto e follow-up) são geradas em
+      // paralelo por todos os browsers abertos, por isso duas pessoas podem
+      // tentar criar a mesma ao mesmo tempo. O índice único garante que só uma
+      // fica — a colisão é o mecanismo a funcionar, não um erro para mostrar a
+      // quem por acaso perdeu a corrida.
+      const colisaoDeTarefaAutomatica =
+        tabela === "tasks" &&
+        error.code === "23505" &&
+        paraGravar.every((t) => t.origem_contact_id);
+      if (!colisaoDeTarefaAutomatica) throw error;
+    }
   }
 
   const removidos = antigos.filter((x) => !novosPorId.has(x.id)).map((x) => x.id);

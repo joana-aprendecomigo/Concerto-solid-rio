@@ -3797,6 +3797,38 @@ function TemplateModal({ data, onClose, onSave, isNew }) {
   );
 }
 
+// Limpa o HTML dos templates antes de o mostrar.
+//
+// O corpo é escrito no editor da plataforma e guardado como HTML. Com os dados
+// partilhados, um template escrito por uma pessoa passa a ser renderizado no
+// browser de toda a equipa — e como o acesso não tem palavra-passe, basta
+// alguém com o endereço do site guardar um <script> num template para o código
+// correr no computador de quem o abrir.
+//
+// Mantêm-se as etiquetas que o editor produz (negrito, itálico, sublinhado,
+// listas, parágrafos e quebras de linha) e descarta-se tudo o resto.
+const ETIQUETAS_PERMITIDAS = new Set([
+  "B", "STRONG", "I", "EM", "U", "UL", "OL", "LI", "P", "BR", "DIV", "SPAN",
+]);
+
+const limparHtml = (html) => {
+  if (typeof document === "undefined") return "";
+  const raiz = document.createElement("div");
+  raiz.innerHTML = html || "";
+  raiz.querySelectorAll("*").forEach((el) => {
+    if (!ETIQUETAS_PERMITIDAS.has(el.tagName)) {
+      // Preserva o texto de dentro, para não perder conteúdo legítimo.
+      el.replaceWith(...el.childNodes);
+      return;
+    }
+    // Atributos podem carregar código (onclick, href="javascript:", …).
+    [...el.attributes].forEach((attr) => {
+      if (attr.name.toLowerCase() !== "style") el.removeAttribute(attr.name);
+    });
+  });
+  return raiz.innerHTML;
+};
+
 /* ---------- conteúdo de pré-visualização (partilhado entre o modal de edição e o modal standalone) ---------- */
 function TemplatePreviewContent({ assunto, corpo }) {
   return (
@@ -3808,7 +3840,11 @@ function TemplatePreviewContent({ assunto, corpo }) {
       <div style={{ fontSize: 11.5, fontWeight: 600, color: C.inkSoft, letterSpacing: 0.3, marginBottom: 8 }}>CORPO DO E-MAIL</div>
       <div
         style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 10, padding: "18px 20px", fontSize: 13.5, color: C.ink, lineHeight: 1.6 }}
-        dangerouslySetInnerHTML={{ __html: corpo || "<span style='color:#8A93A1;font-style:italic'>(sem conteúdo)</span>" }}
+        dangerouslySetInnerHTML={{
+          __html: corpo
+            ? limparHtml(corpo)
+            : "<span style='color:#8A93A1;font-style:italic'>(sem conteúdo)</span>",
+        }}
       />
     </div>
   );
