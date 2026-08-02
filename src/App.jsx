@@ -594,6 +594,10 @@ const KEY_DOCUMENTS = "ymec_documents_v1";
 
 export default function App() {
   const [booted, setBooted] = useState(false);
+  // Só se anuncia a espera quando ela é percetível; abaixo disso, a mensagem
+  // apareceria e desapareceria num piscar de olhos, o que incomoda mais do que
+  // ajuda.
+  const [mostrarEspera, setMostrarEspera] = useState(false);
   const [user, setUser] = useState(null);
   const [members, setMembers] = useState([]);
   const [artists, setArtists] = useState(null);
@@ -646,81 +650,65 @@ export default function App() {
   };
 
   useEffect(() => {
+    const t = setTimeout(() => setMostrarEspera(true), 500);
+    return () => clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
     (async () => {
-      let merged = [];
-      let mergedSpaces = [];
-      let loadedPartners = [];
-      try {
-        let a;
-        try { a = await window.storage.get(KEY_ARTISTS, true); } catch { a = null; }
-        const base = a && a.value ? JSON.parse(a.value) : SEED;
-        // junta a base atual com os novos artistas da lista de agentes/agências, sem duplicar
-        merged = mergeByNome(base, NOVOS_ARTISTAS);
-        setArtists(merged);
-        await window.storage.set(KEY_ARTISTS, JSON.stringify(merged), true);
-      } catch {
-        merged = mergeByNome(SEED, NOVOS_ARTISTAS);
-        setArtists(merged);
-      }
-      try {
-        let s;
-        try { s = await window.storage.get(KEY_SPACES, true); } catch { s = null; }
-        const baseSpaces = s && s.value ? JSON.parse(s.value) : [];
-        // junta a base atual com os espaços recolhidos, sem duplicar (comparação pelo nome)
-        mergedSpaces = mergeByNome(baseSpaces, SEED_ESPACOS);
-        setSpaces(mergedSpaces);
-        await window.storage.set(KEY_SPACES, JSON.stringify(mergedSpaces), true);
-      } catch {
-        mergedSpaces = mergeByNome([], SEED_ESPACOS);
-        setSpaces(mergedSpaces);
-      }
-      try {
-        let p;
-        try { p = await window.storage.get(KEY_PARTNERS, true); } catch { p = null; }
-        loadedPartners = p && p.value ? JSON.parse(p.value) : [];
-        setPartners(loadedPartners);
-      } catch {
-        loadedPartners = [];
-        setPartners([]);
-      }
-      try {
-        let tmpl;
-        try { tmpl = await window.storage.get(KEY_TEMPLATES, true); } catch { tmpl = null; }
-        const baseTemplates = tmpl && tmpl.value ? JSON.parse(tmpl.value) : [];
-        // junta a base atual com os templates de exemplo já redigidos, sem duplicar (comparação pelo nome)
-        const mergedTemplates = mergeByNome(baseTemplates, SEED_TEMPLATES);
-        setTemplates(mergedTemplates);
-        await window.storage.set(KEY_TEMPLATES, JSON.stringify(mergedTemplates), true);
-      } catch {
-        setTemplates(mergeByNome([], SEED_TEMPLATES));
-      }
-      try {
-        let m;
-        try { m = await window.storage.get(KEY_MEMBERS, true); } catch { m = null; }
-        setMembers(m && m.value ? JSON.parse(m.value) : []);
-      } catch { setMembers([]); }
-      try {
-        let d;
-        try { d = await window.storage.get(KEY_DOCUMENTS, true); } catch { d = null; }
-        setDocuments(d && d.value ? JSON.parse(d.value) : []);
-      } catch { setDocuments([]); }
-      let loadedTasks = [];
-      try {
-        let t;
-        try { t = await window.storage.get(KEY_TASKS, true); } catch { t = null; }
-        const baseTasks = t && t.value ? JSON.parse(t.value) : [];
-        loadedTasks = mergeTasksByTituloResp(baseTasks, SEED_TASKS);
-        await window.storage.set(KEY_TASKS, JSON.stringify(loadedTasks), true);
-      } catch {
-        loadedTasks = mergeTasksByTituloResp([], SEED_TASKS);
-      }
-      setTasks(loadedTasks);
-      tasksRef.current = loadedTasks;
-      // sincroniza as tarefas automáticas com os responsáveis já definidos nos contactos
-      await syncContactTasks("artista", merged);
-      await syncContactTasks("espaco", mergedSpaces);
-      await syncContactTasks("parceiro", loadedPartners);
+      // Lê tudo em paralelo. Em série, com a base de dados remota, as sete
+      // leituras somavam-se e o ecrã "A preparar a plataforma…" ficava vários
+      // segundos à vista.
+      const ler = async (chave, seFalhar = []) => {
+        try {
+          const r = await window.storage.get(chave, true);
+          return r && r.value ? JSON.parse(r.value) : seFalhar;
+        } catch {
+          return seFalhar;
+        }
+      };
+
+      const [
+        artistasLidos, espacosLidos, parceirosLidos,
+        templatesLidos, membrosLidos, documentosLidos, tarefasLidas,
+      ] = await Promise.all([
+        ler(KEY_ARTISTS), ler(KEY_SPACES), ler(KEY_PARTNERS),
+        ler(KEY_TEMPLATES), ler(KEY_MEMBERS), ler(KEY_DOCUMENTS), ler(KEY_TASKS),
+      ]);
+
+      // Os dados iniciais (artistas, espaços, templates e tarefas) já vivem na
+      // base de dados, inseridos pelo seed SQL. Só se recorre às listas em
+      // código quando a leitura vem vazia — caso contrário, cada arranque
+      // reescrevia centenas de registos e podia sobrepor o trabalho de quem
+      // estivesse a editar ao mesmo tempo.
+      const artistas = artistasLidos.length ? artistasLidos : mergeByNome(SEED, NOVOS_ARTISTAS);
+      const espacos = espacosLidos.length ? espacosLidos : mergeByNome([], SEED_ESPACOS);
+      const templatesFinal = templatesLidos.length ? templatesLidos : mergeByNome([], SEED_TEMPLATES);
+      const tarefas = tarefasLidas.length ? tarefasLidas : mergeTasksByTituloResp([], SEED_TASKS);
+
+      setArtists(artistas);
+      setSpaces(espacos);
+      setPartners(parceirosLidos);
+      setTemplates(templatesFinal);
+      setMembers(membrosLidos);
+      setDocuments(documentosLidos);
+      setTasks(tarefas);
+      tasksRef.current = tarefas;
+
+      // Mostra já a plataforma: a sincronização das tarefas automáticas não
+      // precisa de bloquear a entrada.
       setBooted(true);
+
+      // Se a base de dados estava vazia, guarda os dados iniciais.
+      if (!artistasLidos.length) await window.storage.set(KEY_ARTISTS, JSON.stringify(artistas), true);
+      if (!espacosLidos.length) await window.storage.set(KEY_SPACES, JSON.stringify(espacos), true);
+      if (!templatesLidos.length) await window.storage.set(KEY_TEMPLATES, JSON.stringify(templatesFinal), true);
+      if (!tarefasLidas.length) await window.storage.set(KEY_TASKS, JSON.stringify(tarefas), true);
+
+      // sincroniza as tarefas automáticas com os responsáveis já definidos nos contactos
+      await syncContactTasks("artista", artistas);
+      await syncContactTasks("espaco", espacos);
+      await syncContactTasks("parceiro", parceirosLidos);
     })();
   }, []);
 
@@ -1059,10 +1047,13 @@ export default function App() {
   };
 
   if (!booted) {
+    // O ecrã de espera só aparece se o carregamento demorar mais de meio
+    // segundo (ver `mostrarEspera`). Num carregamento rápido mostra-se apenas o
+    // fundo do ecrã de entrada, evitando um lampejo de texto entre dois ecrãs.
     return (
-      <div style={{ background: C.bg, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif", color: C.inkSoft }}>
+      <div style={{ position: "relative", background: C.gradient, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif", color: "rgba(255,255,255,0.75)", fontSize: 14 }}>
         <style>{FONTS}</style>
-        A preparar a plataforma…
+        {mostrarEspera && "A preparar a plataforma…"}
       </div>
     );
   }
