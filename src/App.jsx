@@ -1699,13 +1699,29 @@ function Sidebar({ module, setModuleKey, user, onSair, showToast, flutuante, onF
             janelas baixas o rodapé podia ficar fora da área visível, e era
             preciso rolar o menu para o encontrar. */}
         <button
+          onClick={() => setMudarCodigoAberto(true)}
+          title="Mudar o meu código de acesso"
+          style={{
+            display: "flex", alignItems: "center", gap: 10, padding: "9px 10px", borderRadius: 9,
+            background: "transparent", border: "none", color: "rgba(255,255,255,0.6)",
+            fontSize: 13.5, fontWeight: 500, cursor: "pointer", textAlign: "left",
+            fontFamily: "Inter, sans-serif", width: "100%", marginTop: 10,
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+        >
+          <Pencil size={15} style={{ flexShrink: 0 }} />
+          <span style={{ flex: 1 }}>Mudar código</span>
+        </button>
+
+        <button
           onClick={onSair}
           title="Terminar sessão"
           style={{
             display: "flex", alignItems: "center", gap: 10, padding: "9px 10px", borderRadius: 9,
             background: "transparent", border: "none", color: "#FF8A9B",
             fontSize: 13.5, fontWeight: 600, cursor: "pointer", textAlign: "left",
-            fontFamily: "Inter, sans-serif", width: "100%", marginTop: 6,
+            fontFamily: "Inter, sans-serif", width: "100%",
           }}
           onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,138,155,0.12)"; }}
           onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
@@ -1720,19 +1736,9 @@ function Sidebar({ module, setModuleKey, user, onSair, showToast, flutuante, onF
         <div style={{ width: 28, height: 28, borderRadius: 999, background: "rgba(255,255,255,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12.5, fontWeight: 700, flexShrink: 0 }}>
           {user.slice(0, 1).toUpperCase()}
         </div>
-        {/* Só o nome: o botão de sair está agora junto aos módulos, onde se
-            alcança sem rolar. */}
+        {/* Só o nome: mudar código e sair estão junto aos módulos, onde se
+            alcançam sem rolar. */}
         <div style={{ fontSize: 13, fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user}</div>
-        <button
-          onClick={() => setMudarCodigoAberto(true)}
-          title="Mudar o meu código"
-          style={{
-            background: "transparent", border: "none", color: "rgba(255,255,255,0.4)",
-            cursor: "pointer", padding: 4, display: "flex", alignItems: "center", flexShrink: 0,
-          }}
-        >
-          <Pencil size={13} />
-        </button>
       </div>
 
       {mudarCodigoAberto && (
