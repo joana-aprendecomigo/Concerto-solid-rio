@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import App from "./App.jsx";
-import { supabaseConfigurado, verificarLigacao } from "./lib/supabase.js";
+import { supabaseConfigurado, verificarLigacao, diagnostico } from "./lib/supabase.js";
 import { ouvirAlteracoes } from "./lib/realtime.js";
 
 /**
@@ -27,11 +27,14 @@ export default function AppComRealtime() {
   useEffect(() => {
     let cancelado = false;
     (async () => {
-      if (!supabaseConfigurado) {
+      // As credenciais vêm de src/lib/credenciais.js, por isso existem sempre.
+      // Este ramo só dispara se alguém as esvaziar por engano.
+      if (!supabaseConfigurado || !diagnostico.urlValido || !diagnostico.chaveValida) {
         if (!cancelado) {
           setAviso(
-            "A funcionar em modo local: os dados ficam só neste computador e " +
-              "não são partilhados com a equipa."
+            "Credenciais do Supabase em falta ou com formato inesperado " +
+              `(url: ${diagnostico.urlAbreviado}, chave: ${diagnostico.chaveAbreviada}). ` +
+              "Ver src/lib/credenciais.js."
           );
         }
         return;

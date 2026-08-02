@@ -1,12 +1,32 @@
 import { createClient } from "@supabase/supabase-js";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./credenciais.js";
 
-const url = import.meta.env.VITE_SUPABASE_URL;
-const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const url = SUPABASE_URL;
+const anonKey = SUPABASE_ANON_KEY;
 
 // Sem credenciais a plataforma continua a arrancar, mas em modo local
 // (localStorage). Assim ninguém fica com um ecrã em branco por falta de
 // configuração — ver storageShim.js.
 export const supabaseConfigurado = Boolean(url && anonKey);
+
+// Diagnóstico: distingue "variável em falta" de "variável mal preenchida".
+// Sem isto, qualquer um dos casos dava a mesma mensagem genérica e obrigava a
+// adivinhar qual era o problema.
+export const diagnostico = {
+  temUrl: Boolean(url),
+  temChave: Boolean(anonKey),
+  urlValido: typeof url === "string" && url.startsWith("https://"),
+  // A chave pode ser um JWT (formato antigo) ou sb_publishable_ (novo).
+  chaveValida:
+    typeof anonKey === "string" &&
+    (anonKey.startsWith("eyJ") || anonKey.startsWith("sb_publishable_")),
+  urlAbreviado: url ? `${String(url).slice(0, 30)}…` : "(em falta)",
+  chaveAbreviada: anonKey ? `${String(anonKey).slice(0, 12)}…` : "(em falta)",
+};
+
+if (typeof window !== "undefined") {
+  console.info("[Concerto] Configuração Supabase:", diagnostico);
+}
 
 export const supabase = supabaseConfigurado
   ? createClient(url, anonKey, {
