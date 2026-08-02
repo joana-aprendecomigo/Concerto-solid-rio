@@ -1571,6 +1571,15 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
       : `${contacto.nome}: responsável removido.`);
   };
 
+  // Altera as datas de contacto a partir da lista. São campos de planeamento,
+  // por isso não geram evento na timeline nem mexem no seguimento automático —
+  // esse continua a guiar-se pela data do último e-mail efetivamente enviado.
+  const alterarDataRapido = async (contacto, campo, novaData) => {
+    if ((contacto[campo] || "") === novaData) return;
+    const atualizado = { ...contacto, [campo]: novaData, atualizadoPor: user };
+    await persistArtists(list.map((x) => (x.id === contacto.id ? atualizado : x)));
+  };
+
   const saveArtist = async (data) => {
     // a mudança de estado já fica registada na timeline em tempo real, assim que é feita no
     // separador "Dados" do modal (ver setEstado em ArtistModal) — aqui só persistimos o histórico
@@ -1826,10 +1835,12 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
                         <FaseSelect contacto={a} onChange={alterarFaseRapido} />
                       </td>
-                      <td style={{ padding: "12px 14px", verticalAlign: "top", color: C.inkSoft, fontSize: 12.5, whiteSpace: "nowrap" }}>{a.dataUltimoContacto || "—"}</td>
+                      <td style={{ padding: "12px 14px", verticalAlign: "top", fontSize: 12.5, whiteSpace: "nowrap" }}>
+                        <DataSelect contacto={a} campo="dataUltimoContacto" valor={a.dataUltimoContacto} onChange={alterarDataRapido} etiqueta="Último contacto" />
+                      </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top", fontSize: 12.5, whiteSpace: "nowrap" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <span style={{ color: C.inkSoft }}>{a.dataProximoContacto || "—"}</span>
+                          <DataSelect contacto={a} campo="dataProximoContacto" valor={a.dataProximoContacto} onChange={alterarDataRapido} etiqueta="Próximo contacto" />
                           {atrasado && (
                             <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 999, background: C.redBg, color: C.red, fontSize: 10.5, fontWeight: 700 }}>Atrasado</span>
                           )}
@@ -2013,6 +2024,36 @@ function ResponsavelSelect({ contacto, onChange, equipa, podeEditar }) {
   );
 }
 
+// Data editável na lista (último e próximo contacto).
+//
+// O <input type="date"> fica invisível por cima do texto, como nos restantes
+// campos editáveis da lista: mantém o aspeto da tabela e abre o calendário do
+// browser ao clicar.
+function DataSelect({ contacto, campo, valor, onChange, etiqueta }) {
+  return (
+    <div style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 4 }}>
+      <span style={{
+        fontSize: 12.5, whiteSpace: "nowrap", cursor: "pointer",
+        color: valor ? C.inkSoft : C.gray,
+        fontStyle: valor ? "normal" : "italic",
+      }}>
+        {valor || "definir"}
+      </span>
+      <input
+        type="date"
+        value={valor || ""}
+        onChange={(e) => onChange(contacto, campo, e.target.value)}
+        aria-label={`${etiqueta} de ${contacto.nome}`}
+        title={etiqueta}
+        style={{
+          position: "absolute", inset: 0, width: "100%", height: "100%",
+          opacity: 0, cursor: "pointer", border: "none", padding: 0,
+        }}
+      />
+    </div>
+  );
+}
+
 // checkbox simples usado na seleção em massa das listas de contactos (Artistas, Espaços, Parceiros) —
 // mantém a linguagem visual da plataforma, reutilizando os ícones Square / CheckSquare já importados
 function CheckboxToggle({ checked, onChange, title }) {
@@ -2164,6 +2205,15 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
     showToast(novoResponsavel
       ? `${contacto.nome} atribuído a ${novoResponsavel}.`
       : `${contacto.nome}: responsável removido.`);
+  };
+
+  // Altera as datas de contacto a partir da lista. São campos de planeamento,
+  // por isso não geram evento na timeline nem mexem no seguimento automático —
+  // esse continua a guiar-se pela data do último e-mail efetivamente enviado.
+  const alterarDataRapido = async (contacto, campo, novaData) => {
+    if ((contacto[campo] || "") === novaData) return;
+    const atualizado = { ...contacto, [campo]: novaData, atualizadoPor: user };
+    await persistSpaces(list.map((x) => (x.id === contacto.id ? atualizado : x)));
   };
 
   const saveSpace = async (data) => {
@@ -2425,10 +2475,12 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
                         <FaseSelect contacto={a} onChange={alterarFaseRapido} />
                       </td>
-                      <td style={{ padding: "12px 14px", verticalAlign: "top", color: C.inkSoft, fontSize: 12.5, whiteSpace: "nowrap" }}>{a.dataUltimoContacto || "—"}</td>
+                      <td style={{ padding: "12px 14px", verticalAlign: "top", fontSize: 12.5, whiteSpace: "nowrap" }}>
+                        <DataSelect contacto={a} campo="dataUltimoContacto" valor={a.dataUltimoContacto} onChange={alterarDataRapido} etiqueta="Último contacto" />
+                      </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top", fontSize: 12.5, whiteSpace: "nowrap" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <span style={{ color: C.inkSoft }}>{a.dataProximoContacto || "—"}</span>
+                          <DataSelect contacto={a} campo="dataProximoContacto" valor={a.dataProximoContacto} onChange={alterarDataRapido} etiqueta="Próximo contacto" />
                           {atrasado && (
                             <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 999, background: C.redBg, color: C.red, fontSize: 10.5, fontWeight: 700 }}>Atrasado</span>
                           )}
@@ -3219,6 +3271,15 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
       : `${contacto.nome}: responsável removido.`);
   };
 
+  // Altera as datas de contacto a partir da lista. São campos de planeamento,
+  // por isso não geram evento na timeline nem mexem no seguimento automático —
+  // esse continua a guiar-se pela data do último e-mail efetivamente enviado.
+  const alterarDataRapido = async (contacto, campo, novaData) => {
+    if ((contacto[campo] || "") === novaData) return;
+    const atualizado = { ...contacto, [campo]: novaData, atualizadoPor: user };
+    await persistPartners(list.map((x) => (x.id === contacto.id ? atualizado : x)));
+  };
+
   const savePartner = async (data) => {
     // a mudança de estado já fica registada na timeline em tempo real, assim que é feita no
     // separador "Dados" do modal (ver setEstado em ParceiroModal) — aqui só persistimos o histórico
@@ -3464,10 +3525,12 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
                         <FaseSelect contacto={a} onChange={alterarFaseRapido} />
                       </td>
-                      <td style={{ padding: "12px 14px", verticalAlign: "top", color: C.inkSoft, fontSize: 12.5, whiteSpace: "nowrap" }}>{a.dataUltimoContacto || "—"}</td>
+                      <td style={{ padding: "12px 14px", verticalAlign: "top", fontSize: 12.5, whiteSpace: "nowrap" }}>
+                        <DataSelect contacto={a} campo="dataUltimoContacto" valor={a.dataUltimoContacto} onChange={alterarDataRapido} etiqueta="Último contacto" />
+                      </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top", fontSize: 12.5, whiteSpace: "nowrap" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <span style={{ color: C.inkSoft }}>{a.dataProximoContacto || "—"}</span>
+                          <DataSelect contacto={a} campo="dataProximoContacto" valor={a.dataProximoContacto} onChange={alterarDataRapido} etiqueta="Próximo contacto" />
                           {atrasado && (
                             <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 999, background: C.redBg, color: C.red, fontSize: 10.5, fontWeight: 700 }}>Atrasado</span>
                           )}
