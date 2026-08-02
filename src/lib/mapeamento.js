@@ -22,6 +22,8 @@ export function contactoDaBD(row) {
     telefone: ouVazio(row.telefone),
     responsavel: ouVazio(row.responsavel),
     estado: row.estado,
+    // Etiqueta manual da equipa (Fase 1/2/3), distinta de `faseFollowup`.
+    fase: ouVazio(row.fase),
     dataUltimoContacto: ouVazio(row.data_ultimo_contacto),
     dataProximoContacto: ouVazio(row.data_proximo_contacto),
     observacoes: ouVazio(row.observacoes),
@@ -61,6 +63,8 @@ export function contactoParaBD(c, tipo) {
     telefone: ouVazio(c.telefone),
     responsavel: c.responsavel || null,
     estado: c.estado || "Por contactar",
+    // "" no interface significa sem fase atribuída; o enum precisa de null.
+    fase: c.fase || null,
     data_ultimo_contacto: data(c.dataUltimoContacto),
     data_proximo_contacto: data(c.dataProximoContacto),
     observacoes: ouVazio(c.observacoes),

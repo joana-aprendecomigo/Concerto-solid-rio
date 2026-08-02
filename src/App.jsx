@@ -113,6 +113,16 @@ const ESTADO_NAO_CONTACTADO = "Por contactar";
 const ESTADO_AGUARDAR = "A aguardar resposta";
 const ESTADOS_FINAIS = ["Confirmado", "Recusado"];
 
+// Fases atribuídas manualmente pela equipa, para organizar o trabalho. Não
+// confundir com `faseFollowup`, que a plataforma calcula a partir dos e-mails
+// enviados — esta é uma etiqueta livre, definida na ficha de cada contacto.
+const FASES = [
+  { v: "Fase 1", color: C.teal, bg: C.tealBg },
+  { v: "Fase 2", color: C.amber, bg: C.amberBg },
+  { v: "Fase 3", color: C.accent, bg: C.accentSoft },
+];
+const faseInfo = (v) => FASES.find((f) => f.v === v) || null;
+
 // ---------- utilitários de apoio ao trabalho diário (destaque de contactos a precisar de atenção
 // e ordenação rápida das listas de Artistas / Espaços / Parceiros) ----------
 const hojeISO = () => new Date().toISOString().slice(0, 10);
@@ -357,21 +367,21 @@ const uid = () => {
 };
 const blankArtist = () => ({
   id: uid(), nome: "", agencia: "", pessoaContacto: "", email: "", telefone: "",
-  responsavel: "", estado: "Por contactar", dataUltimoContacto: "", dataProximoContacto: "",
+  responsavel: "", estado: "Por contactar", fase: "", dataUltimoContacto: "", dataProximoContacto: "",
   observacoes: "", criadoPor: "", atualizadoPor: "", historico: [],
   aguardaResposta: false, faseFollowup: 0, dataUltimoEnvio: "",
 });
 
 const blankSpace = () => ({
   id: uid(), nome: "", cidade: "", pessoaContacto: "", email: "", telefone: "", capacidade: "",
-  responsavel: "", estado: "Por contactar", dataUltimoContacto: "", dataProximoContacto: "",
+  responsavel: "", estado: "Por contactar", fase: "", dataUltimoContacto: "", dataProximoContacto: "",
   observacoes: "", criadoPor: "", atualizadoPor: "", historico: [],
   aguardaResposta: false, faseFollowup: 0, dataUltimoEnvio: "",
 });
 
 const blankPartner = () => ({
   id: uid(), nome: "", categoria: "Financeiro", contributo: "", pessoaContacto: "", email: "", telefone: "",
-  responsavel: "", estado: "Por contactar", dataUltimoContacto: "", dataProximoContacto: "",
+  responsavel: "", estado: "Por contactar", fase: "", dataUltimoContacto: "", dataProximoContacto: "",
   observacoes: "", criadoPor: "", atualizadoPor: "", historico: [],
   aguardaResposta: false, faseFollowup: 0, dataUltimoEnvio: "",
 });
@@ -1461,6 +1471,7 @@ function ComingSoon({ module }) {
 function ArtistasModule({ artists, persistArtists, user, members, registerMember, showToast, templates, onResposta, onAddNota, onEditEvento, onConcluirTarefaContacto }) {
   const [search, setSearch] = useState("");
   const [filterEstado, setFilterEstado] = useState("Todos");
+  const [filterFase, setFilterFase] = useState("Todas");
   const [filterResp, setFilterResp] = useState("Todos");
   const [filterCard, setFilterCard] = useState(null); // null | 'contactados' | 'responderam' | 'naoResponderam'
   const [sortBy, setSortBy] = useState("nome");
@@ -1483,6 +1494,8 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
   const filtered = useMemo(() => {
     return list.filter((a) => {
       if (filterEstado !== "Todos" && a.estado !== filterEstado) return false;
+      if (filterFase === "Sem fase" && a.fase) return false;
+      if (filterFase !== "Todas" && filterFase !== "Sem fase" && a.fase !== filterFase) return false;
       if (filterResp !== "Todos" && a.responsavel !== filterResp) return false;
       if (filterCard === "contactados" && a.estado === ESTADO_NAO_CONTACTADO) return false;
       if (filterCard === "responderam" && !ESTADOS_RESPONDIDOS.includes(a.estado)) return false;
@@ -1494,7 +1507,7 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
       }
       return true;
     });
-  }, [list, search, filterEstado, filterResp, filterCard]);
+  }, [list, search, filterEstado, filterFase, filterResp, filterCard]);
 
   const sorted = useMemo(() => ordenarContactos(filtered, sortBy), [filtered, sortBy]);
 
@@ -1532,6 +1545,17 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
     await persistArtists(list.map((x) => (x.id === contacto.id ? atualizado : x)));
     if (novoEstado !== "Por contactar") await onConcluirTarefaContacto?.(contacto.id);
     showToast(`${contacto.nome}: estado alterado para "${novoEstado}".`);
+  };
+
+  // Altera a fase a partir da lista. A fase é uma etiqueta de organização da
+  // equipa, por isso não gera evento na timeline nem mexe no seguimento.
+  const alterarFaseRapido = async (contacto, novaFase) => {
+    if ((contacto.fase || "") === novaFase) return;
+    const atualizado = { ...contacto, fase: novaFase, atualizadoPor: user };
+    await persistArtists(list.map((x) => (x.id === contacto.id ? atualizado : x)));
+    showToast(novaFase
+      ? `${contacto.nome}: ${novaFase}.`
+      : `${contacto.nome}: fase removida.`);
   };
 
   const saveArtist = async (data) => {
@@ -1615,6 +1639,7 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
       "Telefone": a.telefone || "",
       "Responsável": a.responsavel || "",
       "Estado": a.estado || "",
+      "Fase": a.fase || "",
       "Último contacto": a.dataUltimoContacto || "",
       "Próximo contacto": a.dataProximoContacto || "",
       "Observações": a.observacoes || "",
@@ -1690,6 +1715,11 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
           <option>Todos</option>
           {ESTADOS.map((e) => <option key={e.v}>{e.v}</option>)}
         </select>
+        <select value={filterFase} onChange={(e) => setFilterFase(e.target.value)} style={selectStyle} title="Filtrar por fase">
+          <option value="Todas">Fase: Todas</option>
+          {FASES.map((f) => <option key={f.v} value={f.v}>{f.v}</option>)}
+          <option value="Sem fase">Sem fase</option>
+        </select>
         <select value={filterResp} onChange={(e) => setFilterResp(e.target.value)} style={selectStyle} title="Filtrar por responsável">
           <option value="Todos">Responsável: Todos</option>
           {responsaveis.map((r) => <option key={r}>{r}</option>)}
@@ -1730,7 +1760,7 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
                       <CheckboxToggle checked={todosVisiveisSelecionados} onChange={toggleSelectAll} title="Selecionar todos os artistas visíveis" />
                     )}
                   </th>
-                  {["Nº", "Artista", "Contacto", "Responsável", "Estado", "Último contacto", "Próximo contacto", ""].map((h, i) => (
+                  {["Nº", "Artista", "Contacto", "Responsável", "Estado", "Fase", "Último contacto", "Próximo contacto", ""].map((h, i) => (
                     <th key={i} style={{ textAlign: "left", padding: "11px 14px", color: C.inkSoft, fontWeight: 600, fontSize: 11.5, letterSpacing: 0.3, whiteSpace: "nowrap" }}>{h}</th>
                   ))}
                 </tr>
@@ -1778,6 +1808,9 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
                         <EstadoSelect contacto={a} onChange={alterarEstadoRapido} />
+                      </td>
+                      <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
+                        <FaseSelect contacto={a} onChange={alterarFaseRapido} />
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top", color: C.inkSoft, fontSize: 12.5, whiteSpace: "nowrap" }}>{a.dataUltimoContacto || "—"}</td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top", fontSize: 12.5, whiteSpace: "nowrap" }}>
@@ -1888,6 +1921,42 @@ function EstadoSelect({ contacto, onChange, disabled }) {
   );
 }
 
+// Etiqueta de fase, editável na lista tal como o estado. Ao contrário do
+// estado, um contacto pode não ter fase atribuída.
+function FaseSelect({ contacto, onChange, disabled }) {
+  const info = faseInfo(contacto.fase);
+  return (
+    <div style={{ position: "relative", display: "inline-flex" }}>
+      <span style={{
+        display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 9px", borderRadius: 999,
+        background: info ? info.bg : C.grayBg,
+        color: info ? info.color : C.gray,
+        fontSize: 11.5, fontWeight: 600, whiteSpace: "nowrap",
+        fontStyle: info ? "normal" : "italic",
+        cursor: disabled ? "default" : "pointer",
+      }}>
+        {contacto.fase || "sem fase"}
+        {!disabled && <ChevronRight size={10} style={{ transform: "rotate(90deg)", opacity: 0.6 }} />}
+      </span>
+      {!disabled && (
+        <select
+          value={contacto.fase || ""}
+          onChange={(e) => onChange(contacto, e.target.value)}
+          aria-label={`Fase de ${contacto.nome}`}
+          title="Alterar fase"
+          style={{
+            position: "absolute", inset: 0, width: "100%", height: "100%",
+            opacity: 0, cursor: "pointer", border: "none", appearance: "none",
+          }}
+        >
+          <option value="">Sem fase</option>
+          {FASES.map((f) => <option key={f.v} value={f.v}>{f.v}</option>)}
+        </select>
+      )}
+    </div>
+  );
+}
+
 // checkbox simples usado na seleção em massa das listas de contactos (Artistas, Espaços, Parceiros) —
 // mantém a linguagem visual da plataforma, reutilizando os ícones Square / CheckSquare já importados
 function CheckboxToggle({ checked, onChange, title }) {
@@ -1943,6 +2012,7 @@ function StatCard({ label, value, icon: Icon, color, onClick, active, title }) {
 function EspacosModule({ spaces, persistSpaces, user, members, registerMember, showToast, templates, onResposta, onAddNota, onEditEvento, onConcluirTarefaContacto }) {
   const [search, setSearch] = useState("");
   const [filterEstado, setFilterEstado] = useState("Todos");
+  const [filterFase, setFilterFase] = useState("Todas");
   const [filterResp, setFilterResp] = useState("Todos");
   const [filterCard, setFilterCard] = useState(null); // null | 'contactados' | 'responderam' | 'naoResponderam'
   const [sortBy, setSortBy] = useState("nome");
@@ -1965,6 +2035,8 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
   const filtered = useMemo(() => {
     return list.filter((a) => {
       if (filterEstado !== "Todos" && a.estado !== filterEstado) return false;
+      if (filterFase === "Sem fase" && a.fase) return false;
+      if (filterFase !== "Todas" && filterFase !== "Sem fase" && a.fase !== filterFase) return false;
       if (filterResp !== "Todos" && a.responsavel !== filterResp) return false;
       if (filterCard === "contactados" && a.estado === ESTADO_NAO_CONTACTADO) return false;
       if (filterCard === "responderam" && !ESTADOS_RESPONDIDOS.includes(a.estado)) return false;
@@ -1976,7 +2048,7 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
       }
       return true;
     });
-  }, [list, search, filterEstado, filterResp, filterCard]);
+  }, [list, search, filterEstado, filterFase, filterResp, filterCard]);
 
   const sorted = useMemo(() => ordenarContactos(filtered, sortBy), [filtered, sortBy]);
 
@@ -2012,6 +2084,17 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
     await persistSpaces(list.map((x) => (x.id === contacto.id ? atualizado : x)));
     if (novoEstado !== "Por contactar") await onConcluirTarefaContacto?.(contacto.id);
     showToast(`${contacto.nome}: estado alterado para "${novoEstado}".`);
+  };
+
+  // Altera a fase a partir da lista. A fase é uma etiqueta de organização da
+  // equipa, por isso não gera evento na timeline nem mexe no seguimento.
+  const alterarFaseRapido = async (contacto, novaFase) => {
+    if ((contacto.fase || "") === novaFase) return;
+    const atualizado = { ...contacto, fase: novaFase, atualizadoPor: user };
+    await persistSpaces(list.map((x) => (x.id === contacto.id ? atualizado : x)));
+    showToast(novaFase
+      ? `${contacto.nome}: ${novaFase}.`
+      : `${contacto.nome}: fase removida.`);
   };
 
   const saveSpace = async (data) => {
@@ -2096,6 +2179,7 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
       "Telefone": a.telefone || "",
       "Responsável": a.responsavel || "",
       "Estado": a.estado || "",
+      "Fase": a.fase || "",
       "Último contacto": a.dataUltimoContacto || "",
       "Próximo contacto": a.dataProximoContacto || "",
       "Observações": a.observacoes || "",
@@ -2171,6 +2255,11 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
           <option>Todos</option>
           {ESTADOS.map((e) => <option key={e.v}>{e.v}</option>)}
         </select>
+        <select value={filterFase} onChange={(e) => setFilterFase(e.target.value)} style={selectStyle} title="Filtrar por fase">
+          <option value="Todas">Fase: Todas</option>
+          {FASES.map((f) => <option key={f.v} value={f.v}>{f.v}</option>)}
+          <option value="Sem fase">Sem fase</option>
+        </select>
         <select value={filterResp} onChange={(e) => setFilterResp(e.target.value)} style={selectStyle} title="Filtrar por responsável">
           <option value="Todos">Responsável: Todos</option>
           {responsaveis.map((r) => <option key={r}>{r}</option>)}
@@ -2211,7 +2300,7 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
                       <CheckboxToggle checked={todosVisiveisSelecionados} onChange={toggleSelectAll} title="Selecionar todos os espaços visíveis" />
                     )}
                   </th>
-                  {["Nº", "Espaço", "Cidade", "Contacto", "Capacidade", "Responsável", "Estado", "Último contacto", "Próximo contacto", ""].map((h, i) => (
+                  {["Nº", "Espaço", "Cidade", "Contacto", "Capacidade", "Responsável", "Estado", "Fase", "Último contacto", "Próximo contacto", ""].map((h, i) => (
                     <th key={i} style={{ textAlign: "left", padding: "11px 14px", color: C.inkSoft, fontWeight: 600, fontSize: 11.5, letterSpacing: 0.3, whiteSpace: "nowrap" }}>{h}</th>
                   ))}
                 </tr>
@@ -2262,6 +2351,9 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
                         <EstadoSelect contacto={a} onChange={alterarEstadoRapido} />
+                      </td>
+                      <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
+                        <FaseSelect contacto={a} onChange={alterarFaseRapido} />
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top", color: C.inkSoft, fontSize: 12.5, whiteSpace: "nowrap" }}>{a.dataUltimoContacto || "—"}</td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top", fontSize: 12.5, whiteSpace: "nowrap" }}>
@@ -2906,6 +2998,12 @@ function EspacoModal({ data, members, existingList, onClose, onSave, isNew, temp
                 {ESTADOS.map((e) => <option key={e.v} value={e.v}>{e.v}</option>)}
               </select>
             </Field>
+            <Field label="Fase">
+              <select style={selectStyle} value={form.fase || ""} onChange={(e) => set("fase", e.target.value)}>
+                <option value="">Sem fase</option>
+                {FASES.map((f) => <option key={f.v} value={f.v}>{f.v}</option>)}
+              </select>
+            </Field>
             <Field label="Data do último contacto">
               <input type="date" style={inputStyle} value={form.dataUltimoContacto} onChange={(e) => set("dataUltimoContacto", e.target.value)} />
             </Field>
@@ -2950,6 +3048,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
   const [search, setSearch] = useState("");
   const [filterCategoria, setFilterCategoria] = useState("Todas");
   const [filterEstado, setFilterEstado] = useState("Todos");
+  const [filterFase, setFilterFase] = useState("Todas");
   const [filterResp, setFilterResp] = useState("Todos");
   const [filterCard, setFilterCard] = useState(null); // null | 'contactados' | 'responderam' | 'naoResponderam'
   const [sortBy, setSortBy] = useState("nome");
@@ -2973,6 +3072,8 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
     return list.filter((a) => {
       if (filterCategoria !== "Todas" && a.categoria !== filterCategoria) return false;
       if (filterEstado !== "Todos" && a.estado !== filterEstado) return false;
+      if (filterFase === "Sem fase" && a.fase) return false;
+      if (filterFase !== "Todas" && filterFase !== "Sem fase" && a.fase !== filterFase) return false;
       if (filterResp !== "Todos" && a.responsavel !== filterResp) return false;
       if (filterCard === "contactados" && a.estado === ESTADO_NAO_CONTACTADO) return false;
       if (filterCard === "responderam" && !ESTADOS_RESPONDIDOS.includes(a.estado)) return false;
@@ -2984,7 +3085,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
       }
       return true;
     });
-  }, [list, search, filterCategoria, filterEstado, filterResp, filterCard]);
+  }, [list, search, filterCategoria, filterEstado, filterFase, filterResp, filterCard]);
 
   const sorted = useMemo(() => ordenarContactos(filtered, sortBy), [filtered, sortBy]);
 
@@ -3020,6 +3121,17 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
     await persistPartners(list.map((x) => (x.id === contacto.id ? atualizado : x)));
     if (novoEstado !== "Por contactar") await onConcluirTarefaContacto?.(contacto.id);
     showToast(`${contacto.nome}: estado alterado para "${novoEstado}".`);
+  };
+
+  // Altera a fase a partir da lista. A fase é uma etiqueta de organização da
+  // equipa, por isso não gera evento na timeline nem mexe no seguimento.
+  const alterarFaseRapido = async (contacto, novaFase) => {
+    if ((contacto.fase || "") === novaFase) return;
+    const atualizado = { ...contacto, fase: novaFase, atualizadoPor: user };
+    await persistPartners(list.map((x) => (x.id === contacto.id ? atualizado : x)));
+    showToast(novaFase
+      ? `${contacto.nome}: ${novaFase}.`
+      : `${contacto.nome}: fase removida.`);
   };
 
   const savePartner = async (data) => {
@@ -3086,6 +3198,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
       "Telefone": a.telefone || "",
       "Responsável": a.responsavel || "",
       "Estado": a.estado || "",
+      "Fase": a.fase || "",
       "Último contacto": a.dataUltimoContacto || "",
       "Próximo contacto": a.dataProximoContacto || "",
       "Observações": a.observacoes || "",
@@ -3162,6 +3275,11 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
           <option>Todos</option>
           {ESTADOS.map((e) => <option key={e.v}>{e.v}</option>)}
         </select>
+        <select value={filterFase} onChange={(e) => setFilterFase(e.target.value)} style={selectStyle} title="Filtrar por fase">
+          <option value="Todas">Fase: Todas</option>
+          {FASES.map((f) => <option key={f.v} value={f.v}>{f.v}</option>)}
+          <option value="Sem fase">Sem fase</option>
+        </select>
         <select value={filterResp} onChange={(e) => setFilterResp(e.target.value)} style={selectStyle} title="Filtrar por responsável">
           <option value="Todos">Responsável: Todos</option>
           {responsaveis.map((r) => <option key={r}>{r}</option>)}
@@ -3202,7 +3320,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
                       <CheckboxToggle checked={todosVisiveisSelecionados} onChange={toggleSelectAll} title="Selecionar todos os parceiros visíveis" />
                     )}
                   </th>
-                  {["Parceiro", "Categoria", "Contacto", "Contributo", "Responsável", "Estado", "Último contacto", "Próximo contacto", ""].map((h, i) => (
+                  {["Parceiro", "Categoria", "Contacto", "Contributo", "Responsável", "Estado", "Fase", "Último contacto", "Próximo contacto", ""].map((h, i) => (
                     <th key={i} style={{ textAlign: "left", padding: "11px 14px", color: C.inkSoft, fontWeight: 600, fontSize: 11.5, letterSpacing: 0.3, whiteSpace: "nowrap" }}>{h}</th>
                   ))}
                 </tr>
@@ -3256,6 +3374,9 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
                         <EstadoSelect contacto={a} onChange={alterarEstadoRapido} />
+                      </td>
+                      <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
+                        <FaseSelect contacto={a} onChange={alterarFaseRapido} />
                       </td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top", color: C.inkSoft, fontSize: 12.5, whiteSpace: "nowrap" }}>{a.dataUltimoContacto || "—"}</td>
                       <td style={{ padding: "12px 14px", verticalAlign: "top", fontSize: 12.5, whiteSpace: "nowrap" }}>
@@ -3411,6 +3532,12 @@ function ParceiroModal({ data, members, existingList, onClose, onSave, isNew, te
                 {ESTADOS.map((e) => <option key={e.v} value={e.v}>{e.v}</option>)}
               </select>
             </Field>
+            <Field label="Fase">
+              <select style={selectStyle} value={form.fase || ""} onChange={(e) => set("fase", e.target.value)}>
+                <option value="">Sem fase</option>
+                {FASES.map((f) => <option key={f.v} value={f.v}>{f.v}</option>)}
+              </select>
+            </Field>
             <Field label="Data do último contacto">
               <input type="date" style={inputStyle} value={form.dataUltimoContacto} onChange={(e) => set("dataUltimoContacto", e.target.value)} />
             </Field>
@@ -3539,6 +3666,12 @@ function ArtistModal({ data, members, existingList, onClose, onSave, isNew, temp
             <Field label="Estado do contacto">
               <select style={selectStyle} value={form.estado} onChange={(e) => setEstado(e.target.value)}>
                 {ESTADOS.map((e) => <option key={e.v} value={e.v}>{e.v}</option>)}
+              </select>
+            </Field>
+            <Field label="Fase">
+              <select style={selectStyle} value={form.fase || ""} onChange={(e) => set("fase", e.target.value)}>
+                <option value="">Sem fase</option>
+                {FASES.map((f) => <option key={f.v} value={f.v}>{f.v}</option>)}
               </select>
             </Field>
             <Field label="Data do último contacto">
