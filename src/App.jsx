@@ -1698,6 +1698,19 @@ function Sidebar({ module, setModuleKey, user, onSair, showToast, flutuante, onF
         {/* Terminar sessão fica junto aos módulos, e não só no rodapé: em
             janelas baixas o rodapé podia ficar fora da área visível, e era
             preciso rolar o menu para o encontrar. */}
+        {/* Quem está a usar a plataforma, logo acima das ações da própria
+            conta — antes ficava no fundo da barra, separado dos botões que
+            lhe dizem respeito. */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 8, padding: "9px 10px",
+          marginTop: 22, borderTop: "1px solid rgba(255,255,255,0.14)", paddingTop: 18,
+        }}>
+          <div style={{ width: 26, height: 26, borderRadius: 999, background: "rgba(255,255,255,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+            {user.slice(0, 1).toUpperCase()}
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user}</div>
+        </div>
+
         <button
           onClick={() => setMudarCodigoAberto(true)}
           title="Mudar o meu código de acesso"
@@ -1705,7 +1718,7 @@ function Sidebar({ module, setModuleKey, user, onSair, showToast, flutuante, onF
             display: "flex", alignItems: "center", gap: 10, padding: "9px 10px", borderRadius: 9,
             background: "transparent", border: "none", color: "rgba(255,255,255,0.6)",
             fontSize: 13.5, fontWeight: 500, cursor: "pointer", textAlign: "left",
-            fontFamily: "Inter, sans-serif", width: "100%", marginTop: 10,
+            fontFamily: "Inter, sans-serif", width: "100%",
           }}
           onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; }}
           onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
@@ -1729,16 +1742,6 @@ function Sidebar({ module, setModuleKey, user, onSair, showToast, flutuante, onF
           <LogOut size={15} style={{ flexShrink: 0 }} />
           <span style={{ flex: 1 }}>Sair</span>
         </button>
-      </div>
-
-      {/* Rodapé sempre visível: é a lista de módulos que rola, não a barra. */}
-      <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", gap: 8, padding: "14px 8px 4px", flexShrink: 0 }}>
-        <div style={{ width: 28, height: 28, borderRadius: 999, background: "rgba(255,255,255,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12.5, fontWeight: 700, flexShrink: 0 }}>
-          {user.slice(0, 1).toUpperCase()}
-        </div>
-        {/* Só o nome: mudar código e sair estão junto aos módulos, onde se
-            alcançam sem rolar. */}
-        <div style={{ fontSize: 13, fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user}</div>
       </div>
 
       {mudarCodigoAberto && (
