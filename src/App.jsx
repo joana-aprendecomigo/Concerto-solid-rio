@@ -1375,6 +1375,9 @@ export default function App() {
         padding: module === "dashboard" ? 0 : (ecraEstreito ? "16px 14px" : "28px 32px"),
         marginTop: ecraEstreito ? 52 : 0,
       }}>
+        {/* O Dashboard desenha o seu próprio fundo escuro de bordo a bordo, por
+            isso a faixa entraria a meio do gradiente. */}
+        {module !== "dashboard" && <FaixaInstalar />}
         {module === "dashboard" ? (
           <DashboardModule
             artists={artists}
@@ -1475,6 +1478,97 @@ export default function App() {
         </div>
       )}
     </div>
+  );
+}
+
+// Faixa de convite para instalar, no topo da plataforma.
+//
+// A opção existe no menu do browser, mas está escondida atrás dos três pontos
+// e passa despercebida — daí o convite explícito. Só aparece quando a
+// instalação é mesmo possível, e quem a dispensar não volta a vê-la.
+function FaixaInstalar() {
+  const [convite, setConvite] = useState(null);
+  const [dispensada, setDispensada] = useState(() => {
+    try { return window.localStorage.getItem("ymec_instalar_dispensado") === "1"; } catch { return false; }
+  });
+  const [ajudaIOS, setAjudaIOS] = useState(false);
+
+  const ehIOS = typeof navigator !== "undefined" && /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const jaEmApp = typeof window !== "undefined" &&
+    (window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone);
+
+  useEffect(() => {
+    const aoConvite = (e) => { e.preventDefault(); setConvite(e); };
+    const aoInstalar = () => {
+      setConvite(null);
+      try { window.localStorage.setItem("ymec_instalar_dispensado", "1"); } catch {}
+      setDispensada(true);
+    };
+    window.addEventListener("beforeinstallprompt", aoConvite);
+    window.addEventListener("appinstalled", aoInstalar);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", aoConvite);
+      window.removeEventListener("appinstalled", aoInstalar);
+    };
+  }, []);
+
+  const dispensar = () => {
+    try { window.localStorage.setItem("ymec_instalar_dispensado", "1"); } catch {}
+    setDispensada(true);
+  };
+
+  if (jaEmApp || dispensada) return null;
+  if (!convite && !ehIOS) return null;
+
+  const instalar = async () => {
+    if (ehIOS) { setAjudaIOS(true); return; }
+    convite.prompt();
+    const { outcome } = await convite.userChoice;
+    setConvite(null);
+    if (outcome === "accepted") dispensar();
+  };
+
+  return (
+    <>
+      <div style={{
+        display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+        padding: "11px 16px", borderRadius: 12, marginBottom: 18,
+        background: C.accentSoft, border: `1px solid ${C.accent}33`,
+      }}>
+        <Download size={16} color={C.accent} style={{ flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 180, fontSize: 13, color: C.ink, fontWeight: 500, lineHeight: 1.4 }}>
+          Instala a plataforma no teu {ehIOS ? "iPhone" : "dispositivo"} para a abrires como uma aplicação.
+        </div>
+        <button type="button" onClick={instalar} style={{ ...btnPrimary, padding: "8px 14px", fontSize: 13 }}>
+          <Download size={14} /> Instalar
+        </button>
+        <button
+          type="button"
+          onClick={dispensar}
+          title="Não mostrar de novo"
+          style={{ background: "transparent", border: "none", color: C.inkSoft, cursor: "pointer", padding: 6, display: "flex", flexShrink: 0 }}
+        >
+          <X size={16} />
+        </button>
+      </div>
+
+      {ajudaIOS && (
+        <Overlay onClose={() => setAjudaIOS(false)} narrow>
+          <div style={{ padding: "22px 24px" }}>
+            <div style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, fontSize: 16.5, color: C.ink, marginBottom: 12 }}>
+              Instalar no iPhone
+            </div>
+            <div style={{ fontSize: 13.5, color: C.inkSoft, lineHeight: 1.6 }}>
+              No Safari, toca no botão <strong>Partilhar</strong> (o quadrado com
+              a seta, em baixo) e escolhe <strong>Adicionar ao ecrã principal</strong>.
+            </div>
+          </div>
+          <div style={{ padding: "16px 24px", borderTop: `1px solid ${C.line}`, display: "flex", justifyContent: "flex-end" }}>
+            <button type="button" onClick={() => setAjudaIOS(false)} style={btnPrimary}>Entendido</button>
+          </div>
+        </Overlay>
+      )}
+    </>
   );
 }
 
