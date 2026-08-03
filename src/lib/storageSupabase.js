@@ -61,11 +61,20 @@ const porId = (lista) => new Map((lista || []).map((x) => [x.id, x]));
 // ---------------------------------------------------------------------------
 
 async function lerContactos(tipo) {
+  // A ordenação da timeline (evento mais recente primeiro) é pedida com o
+  // parâmetro nativo do PostgREST no próprio `select`, em vez de um
+  // `.order()` encadeado — a sintaxe da biblioteca para ordenar uma tabela
+  // relacionada mudou entre versões do supabase-js (`referencedTable` vs.
+  // `foreignTable`) e, na versão errada, a chamada falhava silenciosamente.
+  //
+  // Isso fazia os contactos duplicarem-se no ecrã: a leitura de `artists`
+  // (que falhava) e `spaces` corriam em paralelo no arranque, e sucessivas
+  // gravações por diferença sobre um estado incompleto iam empilhando
+  // contactos "novos" que já existiam.
   const { data, error } = await supabase
     .from("contacts")
-    .select("*, contact_events(*)")
-    .eq("tipo", tipo)
-    .order("data", { referencedTable: "contact_events", ascending: false });
+    .select("*, contact_events(*).order(data.desc)")
+    .eq("tipo", tipo);
   if (error) throw error;
   return (data || []).map(contactoDaBD);
 }
