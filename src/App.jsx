@@ -2492,15 +2492,7 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
       )}
 
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
-        <div style={{ position: "relative", flex: 1, minWidth: 220 }}>
-          <Search size={15} color={C.gray} style={{ position: "absolute", left: 12, top: 11 }} />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Pesquisar por nome, agência, email…"
-            style={{ ...inputStyle, paddingLeft: 34, width: "100%", boxSizing: "border-box" }}
-          />
-        </div>
+        <CampoPesquisa value={search} onChange={setSearch} placeholder="Pesquisar por nome, agência, email…" />
         <select value={filterEstado} onChange={(e) => setFilterEstado(e.target.value)} style={selectStyle}>
           <option>Todos</option>
           {ESTADOS.map((e) => <option key={e.v}>{e.v}</option>)}
@@ -2834,6 +2826,37 @@ function DataSelect({ contacto, campo, valor, onChange, etiqueta, disabled }) {
   );
 }
 
+// Campo de pesquisa com um X para limpar rapidamente — só aparece quando há
+// texto escrito, e devolve o foco ao campo depois de limpar.
+function CampoPesquisa({ value, onChange, placeholder, containerStyle }) {
+  const inputRef = useRef(null);
+  return (
+    <div style={{ position: "relative", flex: 1, minWidth: 220, ...containerStyle }}>
+      <Search size={15} color={C.gray} style={{ position: "absolute", left: 12, top: 11 }} />
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        style={{ ...inputStyle, paddingLeft: 34, paddingRight: value ? 34 : 12, width: "100%", boxSizing: "border-box" }}
+      />
+      {value && (
+        <button
+          type="button"
+          onClick={() => { onChange(""); inputRef.current?.focus(); }}
+          title="Limpar pesquisa"
+          style={{
+            position: "absolute", right: 8, top: 6, padding: 4, border: "none",
+            background: "transparent", color: C.gray, cursor: "pointer", display: "flex",
+          }}
+        >
+          <X size={15} />
+        </button>
+      )}
+    </div>
+  );
+}
+
 // checkbox simples usado na seleção em massa das listas de contactos (Artistas, Espaços, Parceiros) —
 // mantém a linguagem visual da plataforma, reutilizando os ícones Square / CheckSquare já importados
 function CheckboxToggle({ checked, onChange, title }) {
@@ -3159,15 +3182,7 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
       )}
 
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
-        <div style={{ position: "relative", flex: 1, minWidth: 220 }}>
-          <Search size={15} color={C.gray} style={{ position: "absolute", left: 12, top: 11 }} />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Pesquisar por nome, cidade, email…"
-            style={{ ...inputStyle, paddingLeft: 34, width: "100%", boxSizing: "border-box" }}
-          />
-        </div>
+        <CampoPesquisa value={search} onChange={setSearch} placeholder="Pesquisar por nome, cidade, email…" />
         <select value={filterEstado} onChange={(e) => setFilterEstado(e.target.value)} style={selectStyle}>
           <option>Todos</option>
           {ESTADOS.map((e) => <option key={e.v}>{e.v}</option>)}
@@ -4224,15 +4239,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
       )}
 
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
-        <div style={{ position: "relative", flex: 1, minWidth: 220 }}>
-          <Search size={15} color={C.gray} style={{ position: "absolute", left: 12, top: 11 }} />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Pesquisar por nome, contributo, email…"
-            style={{ ...inputStyle, paddingLeft: 34, width: "100%", boxSizing: "border-box" }}
-          />
-        </div>
+        <CampoPesquisa value={search} onChange={setSearch} placeholder="Pesquisar por nome, contributo, email…" />
         <select value={filterCategoria} onChange={(e) => setFilterCategoria(e.target.value)} style={selectStyle}>
           <option>Todas</option>
           {CATEGORIAS_PARCEIROS.map((c) => <option key={c.v}>{c.v}</option>)}
@@ -4775,15 +4782,7 @@ function TemplatesModule({ templates, persistTemplates, user, showToast, soLeitu
         <div>
           <div style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, fontSize: 24, color: C.ink }}>Templates de E-mail</div>
         </div>
-        <div style={{ position: "relative", minWidth: 240 }}>
-          <Search size={15} color={C.gray} style={{ position: "absolute", left: 12, top: 11 }} />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Pesquisar por nome ou assunto…"
-            style={{ ...inputStyle, paddingLeft: 34, width: "100%", boxSizing: "border-box" }}
-          />
-        </div>
+        <CampoPesquisa value={search} onChange={setSearch} placeholder="Pesquisar por nome ou assunto…" containerStyle={{ flex: "none", minWidth: 240 }} />
       </div>
 
       <div style={{ display: "flex", gap: 16, overflowX: "auto", paddingBottom: 10 }}>
