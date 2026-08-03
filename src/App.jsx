@@ -213,7 +213,11 @@ const isLider = (nome) => {
 // `verTudo` é o interruptor dos líderes para recuperarem a visão de conjunto;
 // sem ele, mesmo um líder ficaria limitado ao que lhe está atribuído, o que
 // destruiria a supervisão que o cargo existe para dar.
-const contactoVisivelPara = (contact, user, verTudo) => {
+const contactoVisivelPara = (contact, user, verTudo, soLeitura) => {
+  // O visitante existe precisamente para consultar tudo em modo de leitura;
+  // sem sessão (`user` nulo), a regra abaixo trataria "responsável === null"
+  // como falso para qualquer contacto atribuído, e o visitante via 0 contactos.
+  if (soLeitura) return true;
   if (verTudo && isLider(user)) return true;
   if (contact.responsavel) return contact.responsavel === user;
   return isLider(user);
@@ -2263,8 +2267,8 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
   const [verTudo, setVerTudo] = useState(true);
   const listaCompleta = artists || [];
   const list = useMemo(
-    () => listaCompleta.filter((a) => contactoVisivelPara(a, user, verTudo)),
-    [listaCompleta, user, verTudo]
+    () => listaCompleta.filter((a) => contactoVisivelPara(a, user, verTudo, soLeitura)),
+    [listaCompleta, user, verTudo, soLeitura]
   );
 
   // lista de responsáveis para o filtro: todos os membros da equipa já registados, mais quaisquer
@@ -3018,8 +3022,8 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
   const [verTudo, setVerTudo] = useState(true);
   const listaCompleta = spaces || [];
   const list = useMemo(
-    () => listaCompleta.filter((a) => contactoVisivelPara(a, user, verTudo)),
-    [listaCompleta, user, verTudo]
+    () => listaCompleta.filter((a) => contactoVisivelPara(a, user, verTudo, soLeitura)),
+    [listaCompleta, user, verTudo, soLeitura]
   );
 
   // lista de responsáveis para o filtro: todos os membros da equipa já registados, mais quaisquer
@@ -4114,8 +4118,8 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
   const [verTudo, setVerTudo] = useState(true);
   const listaCompleta = partners || [];
   const list = useMemo(
-    () => listaCompleta.filter((a) => contactoVisivelPara(a, user, verTudo)),
-    [listaCompleta, user, verTudo]
+    () => listaCompleta.filter((a) => contactoVisivelPara(a, user, verTudo, soLeitura)),
+    [listaCompleta, user, verTudo, soLeitura]
   );
 
   // lista de responsáveis para o filtro: todos os membros da equipa já registados, mais quaisquer
@@ -5258,7 +5262,7 @@ function FollowUpsModule({
     ];
     return todos
       .filter((c) => c.aguardaResposta && c.dataUltimoEnvio)
-      .filter((c) => verTudo || c.responsavel === user)
+      .filter((c) => soLeitura || verTudo || c.responsavel === user)
       .filter((c) => tipoFiltro === "Todos" || c._tipo === tipoFiltro)
       .map((c) => {
         const dias = diasDesdeUltimoEnvio(c) ?? 0;
@@ -5267,7 +5271,7 @@ function FollowUpsModule({
       })
       // Mais urgente primeiro: quem está mais perto do prazo (ou já o passou).
       .sort((a, b) => (b._dias / b._intervalo) - (a._dias / a._intervalo));
-  }, [listByTipo, user, verTudo, tipoFiltro, diasDesdeUltimoEnvio, intervaloDaFase]);
+  }, [listByTipo, user, verTudo, tipoFiltro, diasDesdeUltimoEnvio, intervaloDaFase, soLeitura]);
 
   const registarResposta = async (contacto, teveResposta) => {
     setOcupadoId(contacto.id);
