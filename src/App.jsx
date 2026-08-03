@@ -492,6 +492,16 @@ const SEED_TEMPLATES = [
 ].map((t) => ({ ...blankTemplate(), ...t }));
 
 const normNome = (s) => (s || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+// Pesquisa por nome: verifica se alguma palavra do nome COMEÇA por `termo`,
+// em vez de o termo aparecer em qualquer posição. Sem isto, escrever "af"
+// encontrava "Mafalda" e "Mafama" (o "af" aparece a meio), quando a intenção
+// de quem pesquisa um nome é sempre "começa por".
+const nomeComecaPor = (nome, termo) => {
+  const alvo = normNome(termo);
+  if (!alvo) return true;
+  return normNome(nome).split(/[\s'’-]+/).some((palavra) => palavra.startsWith(alvo));
+};
 // junta uma lista-base com uma lista de novos registos, sem criar duplicados (comparação pelo nome)
 const mergeByNome = (base, extras) => {
   const existentes = new Set(base.map((x) => normNome(x.nome)));
@@ -2289,9 +2299,13 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
       if (filterCard === "responderam" && !ESTADOS_RESPONDIDOS.includes(a.estado)) return false;
       if (filterCard === "naoResponderam" && a.estado !== ESTADO_AGUARDAR) return false;
       if (search.trim()) {
+        // O nome usa "começa por palavra" (ver nomeComecaPor); os restantes
+        // campos mantêm correspondência livre, que faz mais sentido para
+        // e-mails e nomes de agência/contacto.
+        const correspondeNome = nomeComecaPor(a.nome, search);
         const q = normNome(search);
-        const blob = normNome(`${a.nome} ${a.agencia} ${a.pessoaContacto} ${a.email}`);
-        if (!blob.includes(q)) return false;
+        const restoBlob = normNome(`${a.agencia} ${a.pessoaContacto} ${a.email}`);
+        if (!correspondeNome && !restoBlob.includes(q)) return false;
       }
       return true;
     });
@@ -3044,9 +3058,13 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
       if (filterCard === "responderam" && !ESTADOS_RESPONDIDOS.includes(a.estado)) return false;
       if (filterCard === "naoResponderam" && a.estado !== ESTADO_AGUARDAR) return false;
       if (search.trim()) {
+        // O nome usa "começa por palavra" (ver nomeComecaPor); os restantes
+        // campos mantêm correspondência livre, que faz mais sentido para
+        // e-mails e nomes de agência/contacto.
+        const correspondeNome = nomeComecaPor(a.nome, search);
         const q = normNome(search);
-        const blob = normNome(`${a.nome} ${a.cidade} ${a.pessoaContacto} ${a.email}`);
-        if (!blob.includes(q)) return false;
+        const restoBlob = normNome(`${a.cidade} ${a.pessoaContacto} ${a.email}`);
+        if (!correspondeNome && !restoBlob.includes(q)) return false;
       }
       return true;
     });
@@ -4141,9 +4159,13 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
       if (filterCard === "responderam" && !ESTADOS_RESPONDIDOS.includes(a.estado)) return false;
       if (filterCard === "naoResponderam" && a.estado !== ESTADO_AGUARDAR) return false;
       if (search.trim()) {
+        // O nome usa "começa por palavra" (ver nomeComecaPor); os restantes
+        // campos mantêm correspondência livre, que faz mais sentido para
+        // e-mails e nomes de agência/contacto.
+        const correspondeNome = nomeComecaPor(a.nome, search);
         const q = normNome(search);
-        const blob = normNome(`${a.nome} ${a.contributo} ${a.pessoaContacto} ${a.email}`);
-        if (!blob.includes(q)) return false;
+        const restoBlob = normNome(`${a.contributo} ${a.pessoaContacto} ${a.email}`);
+        if (!correspondeNome && !restoBlob.includes(q)) return false;
       }
       return true;
     });
