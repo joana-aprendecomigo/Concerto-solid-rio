@@ -1569,6 +1569,7 @@ export default function App() {
         ) : module === "followups" ? (
           <FollowUpsModule
             listByTipo={listByTipo}
+            persistByTipo={persistByTipo}
             user={user}
             soLeitura={soLeitura}
             showToast={showToast}
@@ -1576,6 +1577,8 @@ export default function App() {
             diasDesdeUltimoEnvio={diasDesdeUltimoEnvio}
             onResposta={respostaHandlers}
             templates={templates}
+            dadosEquipa={dadosEquipa}
+            remetente={remetente}
           />
         ) : module === "templates" ? (
           <TemplatesModule
@@ -2910,6 +2913,159 @@ function BarraContagem({ dias, intervalo }) {
         <div style={{ height: "100%", width: `${pct}%`, background: cor, borderRadius: 999, transition: "width .3s ease" }} />
       </div>
     </div>
+  );
+}
+
+// Linha temporal horizontal de um contacto no módulo Follow-ups.
+//
+// Mostra sempre: Primeiro Contacto (concluído) → fase atual → fase seguinte
+// (a próxima que fica disponível quando o prazo esgota). Não mostra fases
+// além dessas: um contacto na Fase 1 não precisa de ver já os pontos da
+// Fase 2 e 3, que podem nunca vir a acontecer.
+//
+// Não decide sozinha quando um follow-up "está disponível" — usa exatamente
+// os mesmos dados (dias, intervalo) que já geram os follow-ups automáticos em
+// segundo plano, para a timeline nunca mostrar uma coisa e a plataforma fazer
+// outra.
+function LinhaTemporalContacto({ contacto, dias, intervalo, onAbrirFase }) {
+  const faseAtual = contacto.faseFollowup || 1;
+  const disponivel = dias >= intervalo;
+  const pct = Math.max(0, Math.min(100, Math.round((dias / intervalo) * 100)));
+  const cor = disponivel ? C.red : pct >= 70 ? C.amber : C.teal;
+
+  const pontos = [
+    { label: "Primeiro contacto", estado: "concluido" },
+    { label: `Follow-up ${faseAtual}`, estado: disponivel ? "disponivel" : "a_decorrer", fase: faseAtual + 1 },
+  ];
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center" }}>
+        {pontos.map((p, i) => (
+          <React.Fragment key={i}>
+            {i > 0 && (
+              <div style={{ flex: 1, height: 3, margin: "0 6px", borderRadius: 999, background: C.grayBg, position: "relative", overflow: "hidden", top: -11 }}>
+                <div style={{ position: "absolute", inset: 0, width: `${pct}%`, background: cor, borderRadius: 999, transition: "width .3s ease" }} />
+              </div>
+            )}
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5, flexShrink: 0 }}>
+              <button
+                type="button"
+                disabled={p.estado !== "disponivel"}
+                onClick={() => p.fase && onAbrirFase(p.fase)}
+                title={p.estado === "disponivel" ? `Abrir template do Follow-up ${p.fase - 1}` : p.label}
+                style={{
+                  width: 22, height: 22, borderRadius: 999, border: "none",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  cursor: p.estado === "disponivel" ? "pointer" : "default",
+                  background: p.estado === "concluido" ? C.green : p.estado === "disponivel" ? C.accent : "#fff",
+                  boxShadow: p.estado === "a_decorrer" ? `0 0 0 2px ${C.teal}` : "none",
+                  color: p.estado === "a_decorrer" ? C.teal : "#fff",
+                }}
+              >
+                {p.estado === "concluido" && <CheckCircle2 size={13} />}
+                {p.estado === "disponivel" && <Mail size={11} />}
+                {p.estado === "a_decorrer" && <span style={{ width: 6, height: 6, borderRadius: 999, background: "currentColor" }} />}
+              </button>
+              <span style={{ fontSize: 10, color: C.inkSoft, fontWeight: 600, whiteSpace: "nowrap" }}>{p.label}</span>
+            </div>
+          </React.Fragment>
+        ))}
+      </div>
+      <div style={{ marginTop: 10 }}>
+        <BarraContagem dias={dias} intervalo={intervalo} />
+      </div>
+    </div>
+  );
+}
+
+// Painel que abre ao clicar num ponto de follow-up disponível na timeline:
+// mostra o template dessa fase já preenchido com os dados do contacto e do
+// responsável, e permite enviar sem sair do módulo Follow-ups.
+//
+// Reaproveita a mesma lógica de preenchimento (aplicarVariaveisContacto) e o
+// mesmo registo de envio (aplicarEnvioEmailContacto) que a ficha do contacto
+// já usa — enviar por aqui tem de ter exatamente o mesmo efeito.
+function PainelFaseFollowup({ contacto, tipo, fase, templates, dadosEquipa, remetente, user, onEnviar, onClose, showToast }) {
+  const [enviando, setEnviando] = useState(false);
+  const tipoInfo = TIPOS_CONTACTO[tipo] || {};
+  const tmpl = (templates || []).find((t) => t.categoria === tipoInfo.categoriaTemplate && Number(t.fase) === fase) || null;
+  const assina = (contacto?.responsavel && dadosEquipa?.[contacto.responsavel]) || remetente;
+  const preview = tmpl ? aplicarVariaveisContacto(tmpl.assunto, tmpl.corpo, contacto, tipo, assina) : null;
+  const assinaturaIncompleta = tmpl && (!assina?.nome || !assina?.cargo || !assina?.departamento);
+  const semEmail = !contacto?.email;
+
+  const enviar = async () => {
+    if (!tmpl || semEmail) return;
+    setEnviando(true);
+    try {
+      const texto = htmlParaTexto(preview.corpo);
+      abrirMailto(contacto.email, preview.assunto, texto);
+      const entry = criarRegistoEnvio({ template: tmpl, assunto: preview.assunto, corpo: preview.corpo, user });
+      await onEnviar(entry);
+      showToast(`Follow-up ${fase - 1} registado para ${contacto.nome}.`);
+      onClose();
+    } finally {
+      setEnviando(false);
+    }
+  };
+
+  return (
+    <Overlay onClose={onClose} wide>
+      <div style={{ padding: "20px 24px", borderBottom: `1px solid ${C.line}`, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <div style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, fontSize: 17, color: C.ink, marginBottom: 4 }}>
+            Follow-up {fase - 1} — {contacto.nome}
+          </div>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px", borderRadius: 999, background: C.grayBg, color: C.inkSoft, fontSize: 11, fontWeight: 600 }}>
+            {tipoInfo.label}
+          </span>
+        </div>
+        <button onClick={onClose} style={iconBtn}><X size={17} /></button>
+      </div>
+
+      <div style={{ padding: "18px 24px", maxHeight: "58vh", overflowY: "auto" }}>
+        {!tmpl ? (
+          <div style={{ color: C.inkSoft, fontSize: 13.5, padding: "20px 0", textAlign: "center" }}>
+            Ainda não existe um template para esta fase ({tipoInfo.categoriaTemplate}, Fase {fase}).
+            Cria um no módulo "Templates de Email" para poderes enviar este follow-up.
+          </div>
+        ) : (
+          <>
+            {semEmail && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", borderRadius: 9, background: C.amberBg, color: C.amber, fontSize: 12.5, fontWeight: 500, marginBottom: 14 }}>
+                <AlertTriangle size={14} /> Este contacto não tem e-mail definido.
+              </div>
+            )}
+            {assinaturaIncompleta && (
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", borderRadius: 9, background: C.amberBg, color: C.amber, fontSize: 12.5, fontWeight: 500, marginBottom: 14, lineHeight: 1.5 }}>
+                <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                {!contacto?.responsavel
+                  ? "Este contacto não tem responsável atribuído, por isso a assinatura fica incompleta."
+                  : `Faltam dados de ${assina?.nome || contacto.responsavel} (cargo ou departamento).`}
+              </div>
+            )}
+            <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, padding: "14px 16px" }}>
+              <TemplatePreviewContent assunto={preview.assunto} corpo={preview.corpo} />
+            </div>
+          </>
+        )}
+      </div>
+
+      <div style={{ padding: "16px 24px", borderTop: `1px solid ${C.line}`, display: "flex", justifyContent: "flex-end", gap: 10 }}>
+        <button type="button" onClick={onClose} style={btnGhost}>Fechar</button>
+        {tmpl && (
+          <button
+            type="button"
+            onClick={enviar}
+            disabled={enviando || semEmail}
+            style={{ ...btnPrimary, opacity: enviando || semEmail ? 0.5 : 1, cursor: enviando || semEmail ? "not-allowed" : "pointer" }}
+          >
+            <Send size={15} /> {enviando ? "A abrir cliente de email…" : "Enviar Follow-up"}
+          </button>
+        )}
+      </div>
+    </Overlay>
   );
 }
 
@@ -5269,12 +5425,15 @@ function TemplatePreviewModal({ template, onClose }) {
 // follow-ups automáticos (intervaloDaFase, diasDesdeUltimoEnvio), para o que
 // se vê aqui nunca poder divergir do que a plataforma faz sozinha.
 function FollowUpsModule({
-  listByTipo, user, showToast, soLeitura,
+  listByTipo, persistByTipo, user, showToast, soLeitura,
   intervaloDaFase, diasDesdeUltimoEnvio, onResposta, templates,
+  dadosEquipa, remetente,
 }) {
   const [verTudo, setVerTudo] = useState(false);
   const [tipoFiltro, setTipoFiltro] = useState("Todos");
   const [ocupadoId, setOcupadoId] = useState(null);
+  // Painel do template aberto ao clicar num ponto de follow-up disponível.
+  const [faseAberta, setFaseAberta] = useState(null); // { contacto, tipo, fase }
 
   const contactos = useMemo(() => {
     const todos = [
@@ -5302,6 +5461,18 @@ function FollowUpsModule({
     } finally {
       setOcupadoId(null);
     }
+  };
+
+  // Envio do follow-up a partir do painel: regista o e-mail exatamente como a
+  // ficha do contacto o faria (mesma função aplicarEnvioEmailContacto), o que
+  // faz a fase avançar e reinicia a contagem para o follow-up seguinte.
+  const enviarFollowup = async (entry) => {
+    if (!faseAberta) return;
+    const { contacto, tipo } = faseAberta;
+    const persist = persistByTipo[tipo];
+    const lista = listByTipo[tipo] || [];
+    const atualizado = aplicarEnvioEmailContacto(contacto, entry);
+    await persist(lista.map((c) => (c.id === contacto.id ? atualizado : c)));
   };
 
   return (
@@ -5353,9 +5524,8 @@ function FollowUpsModule({
             const tipoInfo = TIPOS_CONTACTO[c._tipo];
             const TipoIcon = tipoInfo.icon;
             const fase = c.faseFollowup || 1;
-            const atrasado = c._dias >= c._intervalo;
             return (
-              <div key={c.id} style={{ background: C.panel, borderRadius: 14, border: `1px solid ${atrasado ? C.red + "55" : C.line}`, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+              <div key={c.id} style={{ background: C.panel, borderRadius: 14, border: `1px solid ${C.line}`, padding: 16, display: "flex", flexDirection: "column", gap: 14 }}>
                 <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
@@ -5364,46 +5534,49 @@ function FollowUpsModule({
                     </div>
                     <div style={{ fontWeight: 700, fontSize: 14.5, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.nome}</div>
                   </div>
-                  <span style={{ display: "inline-flex", alignItems: "center", padding: "3px 9px", borderRadius: 999, background: C.tealBg, color: C.teal, fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0 }}>
-                    Fase {fase}
-                  </span>
+                  {c.responsavel && c.responsavel !== user && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: C.inkSoft, flexShrink: 0 }}>
+                      <UserCircle2 size={12} /> {c.responsavel}
+                    </div>
+                  )}
                 </div>
 
-                {c.responsavel && c.responsavel !== user && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, color: C.inkSoft }}>
-                    <UserCircle2 size={12} /> {c.responsavel}
-                  </div>
-                )}
-
-                <BarraContagem dias={c._dias} intervalo={c._intervalo} />
+                <LinhaTemporalContacto
+                  contacto={c}
+                  dias={c._dias}
+                  intervalo={c._intervalo}
+                  onAbrirFase={(fase) => setFaseAberta({ contacto: c, tipo: c._tipo, fase })}
+                />
 
                 {!soLeitura && (
-                  <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
-                    <button
-                      type="button"
-                      disabled={ocupadoId === c.id}
-                      onClick={() => registarResposta(c, true)}
-                      style={{ ...btnGhost, flex: 1, padding: "7px 10px", fontSize: 12.5, justifyContent: "center", opacity: ocupadoId === c.id ? 0.6 : 1 }}
-                    >
-                      <CheckCircle2 size={13} color={C.green} /> Respondeu
-                    </button>
-                    {atrasado && (
-                      <button
-                        type="button"
-                        disabled={ocupadoId === c.id}
-                        onClick={() => registarResposta(c, false)}
-                        style={{ ...btnPrimary, flex: 1, padding: "7px 10px", fontSize: 12.5, justifyContent: "center", opacity: ocupadoId === c.id ? 0.6 : 1 }}
-                        title="Cria o follow-up desta fase e avança a contagem"
-                      >
-                        <Workflow size={13} /> Criar follow-up
-                      </button>
-                    )}
-                  </div>
+                  <button
+                    type="button"
+                    disabled={ocupadoId === c.id}
+                    onClick={() => registarResposta(c, true)}
+                    style={{ ...btnGhost, padding: "7px 10px", fontSize: 12.5, justifyContent: "center", opacity: ocupadoId === c.id ? 0.6 : 1 }}
+                  >
+                    <CheckCircle2 size={13} color={C.green} /> Respondeu — terminar seguimento
+                  </button>
                 )}
               </div>
             );
           })}
         </div>
+      )}
+
+      {faseAberta && (
+        <PainelFaseFollowup
+          contacto={faseAberta.contacto}
+          tipo={faseAberta.tipo}
+          fase={faseAberta.fase}
+          templates={templates}
+          dadosEquipa={dadosEquipa}
+          remetente={remetente}
+          user={user}
+          onEnviar={enviarFollowup}
+          onClose={() => setFaseAberta(null)}
+          showToast={showToast}
+        />
       )}
     </div>
   );
