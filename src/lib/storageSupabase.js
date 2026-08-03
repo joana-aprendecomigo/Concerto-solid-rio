@@ -158,8 +158,24 @@ export function recolherConflitos() {
   return c;
 }
 
+async function garantirBaseParaComparar(chave, tipo) {
+  // O Realtime limpa a cache sempre que deteta uma alteração — incluindo o
+  // eco das nossas próprias gravações. Se isso acontecer entre o utilizador
+  // clicar em eliminar e esta função correr, `cache.get` devolvia undefined e
+  // caía-se em `[]`: todos os contactos existentes pareciam "novos" (nenhum
+  // reconhecido como já gravado) e nenhum era detetado como removido — a
+  // eliminação era ignorada em silêncio até a página recarregar.
+  //
+  // Em vez de assumir lista vazia, lê-se a base de dados para ter a
+  // comparação correta.
+  if (cache.has(chave)) return cache.get(chave);
+  const atual = await lerContactos(tipo);
+  cache.set(chave, atual);
+  return atual;
+}
+
 async function guardarContactos(chave, tipo, novos) {
-  const antigos = cache.get(chave) || [];
+  const antigos = await garantirBaseParaComparar(chave, tipo);
   const antigosPorId = porId(antigos);
   const novosPorId = porId(novos);
 
@@ -283,8 +299,18 @@ async function guardarContactos(chave, tipo, novos) {
   }
 }
 
+async function garantirBaseSimplesParaComparar(chave) {
+  // Mesmo risco do guardarContactos: sem isto, uma cache limpa pelo Realtime
+  // no momento errado fazia a eliminação de uma tarefa, template ou
+  // documento ser ignorada em silêncio.
+  if (cache.has(chave)) return cache.get(chave);
+  const atual = await ler(chave);
+  cache.set(chave, atual);
+  return atual;
+}
+
 async function guardarSimples(chave, tabela, novos, paraBD) {
-  const antigos = cache.get(chave) || [];
+  const antigos = await garantirBaseSimplesParaComparar(chave);
   const antigosPorId = porId(antigos);
   const novosPorId = porId(novos);
 

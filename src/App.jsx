@@ -2251,8 +2251,8 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
       if (filterCard === "responderam" && !ESTADOS_RESPONDIDOS.includes(a.estado)) return false;
       if (filterCard === "naoResponderam" && a.estado !== ESTADO_AGUARDAR) return false;
       if (search.trim()) {
-        const q = search.toLowerCase();
-        const blob = `${a.nome} ${a.agencia} ${a.pessoaContacto} ${a.email}`.toLowerCase();
+        const q = normNome(search);
+        const blob = normNome(`${a.nome} ${a.agencia} ${a.pessoaContacto} ${a.email}`);
         if (!blob.includes(q)) return false;
       }
       return true;
@@ -2919,8 +2919,8 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
       if (filterCard === "responderam" && !ESTADOS_RESPONDIDOS.includes(a.estado)) return false;
       if (filterCard === "naoResponderam" && a.estado !== ESTADO_AGUARDAR) return false;
       if (search.trim()) {
-        const q = search.toLowerCase();
-        const blob = `${a.nome} ${a.cidade} ${a.pessoaContacto} ${a.email}`.toLowerCase();
+        const q = normNome(search);
+        const blob = normNome(`${a.nome} ${a.cidade} ${a.pessoaContacto} ${a.email}`);
         if (!blob.includes(q)) return false;
       }
       return true;
@@ -4010,8 +4010,8 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
       if (filterCard === "responderam" && !ESTADOS_RESPONDIDOS.includes(a.estado)) return false;
       if (filterCard === "naoResponderam" && a.estado !== ESTADO_AGUARDAR) return false;
       if (search.trim()) {
-        const q = search.toLowerCase();
-        const blob = `${a.nome} ${a.contributo} ${a.pessoaContacto} ${a.email}`.toLowerCase();
+        const q = normNome(search);
+        const blob = normNome(`${a.nome} ${a.contributo} ${a.pessoaContacto} ${a.email}`);
         if (!blob.includes(q)) return false;
       }
       return true;
