@@ -6310,24 +6310,42 @@ function TaskModal({ data, onClose, onSave, isNew, members }) {
 // do Excel — os campos comuns (nome, pessoaContacto, email, ...) são os
 // mesmos para os três, só estes variam.
 const CAMPOS_EXTRA_POR_TIPO = {
-  artista: [{ key: "agencia", rotulos: ["agência", "agencia"] }],
+  artista: [{ key: "agencia", cabecalho: "Agência", rotulos: ["agência", "agencia"] }],
   espaco: [
-    { key: "cidade", rotulos: ["cidade"] },
-    { key: "capacidade", rotulos: ["capacidade"] },
+    { key: "cidade", cabecalho: "Cidade", rotulos: ["cidade"] },
+    { key: "capacidade", cabecalho: "Capacidade", rotulos: ["capacidade"] },
   ],
   parceiro: [
-    { key: "categoria", rotulos: ["categoria"] },
-    { key: "contributo", rotulos: ["contributo", "contributo / apoio"] },
+    { key: "categoria", cabecalho: "Categoria", rotulos: ["categoria"] },
+    { key: "contributo", cabecalho: "Contributo / apoio", rotulos: ["contributo", "contributo / apoio"] },
   ],
 };
 
 const CAMPOS_COMUNS = [
-  { key: "nome", rotulos: ["nome"], obrigatorio: true },
-  { key: "pessoaContacto", rotulos: ["pessoa de contacto", "pessoa contacto", "contacto"] },
-  { key: "email", rotulos: ["email", "e-mail"] },
-  { key: "telefone", rotulos: ["telefone", "telemóvel"] },
-  { key: "observacoes", rotulos: ["observações", "observacoes", "notas"] },
+  { key: "nome", cabecalho: "Nome", rotulos: ["nome"], obrigatorio: true },
+  { key: "pessoaContacto", cabecalho: "Pessoa de contacto", rotulos: ["pessoa de contacto", "pessoa contacto", "contacto"] },
+  { key: "email", cabecalho: "Email", rotulos: ["email", "e-mail"] },
+  { key: "telefone", cabecalho: "Telefone", rotulos: ["telefone", "telemóvel"] },
+  { key: "observacoes", cabecalho: "Observações", rotulos: ["observações", "observacoes", "notas"] },
 ];
+
+// Modelo em branco (só cabeçalhos, sem dados) para quem prefere preparar o
+// ficheiro localmente antes de importar. Usa exatamente os mesmos campos que
+// a importação reconhece, incluindo uma linha de exemplo para mostrar o
+// formato esperado.
+const descarregarModeloExcel = (tipo, rotuloTipo) => {
+  const campos = [...CAMPOS_COMUNS, ...(CAMPOS_EXTRA_POR_TIPO[tipo] || [])];
+  const exemplo = {
+    artista: { nome: "Mariza", agencia: "Sons em Trânsito" },
+    espaco: { nome: "Teatro Nacional", cidade: "Braga", capacidade: "400" },
+    parceiro: { nome: "Câmara Municipal", categoria: "Financeiro", contributo: "Patrocínio" },
+  }[tipo] || {};
+
+  const linhaExemplo = {};
+  campos.forEach((c) => { linhaExemplo[c.cabecalho] = exemplo[c.key] || ""; });
+
+  exportarListaExcel(`Modelo - ${rotuloTipo}`, rotuloTipo, [linhaExemplo]);
+};
 
 // Adiciona vários contactos de uma vez, por duas vias: colar uma lista de
 // nomes (um por linha) ou carregar um ficheiro Excel com as mesmas colunas
@@ -6488,8 +6506,18 @@ function ModalImportarContactos({ tipo, blank, existingList, onClose, onImportar
               <Download size={16} style={{ transform: "rotate(180deg)" }} />
               {ficheiroNome || "Escolher ficheiro .xlsx"}
             </button>
-            <div style={{ marginTop: 10, fontSize: 12, color: C.inkSoft, lineHeight: 1.5 }}>
-              Usa as mesmas colunas do "Exportar Excel" desta lista — a coluna "Nome" é obrigatória, as restantes são opcionais.
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginTop: 10 }}>
+              <div style={{ fontSize: 12, color: C.inkSoft, lineHeight: 1.5 }}>
+                Usa as mesmas colunas do "Exportar Excel" desta lista — a coluna "Nome" é obrigatória, as restantes são opcionais.
+              </div>
+              <button
+                type="button"
+                onClick={() => descarregarModeloExcel(tipo, rotuloTipo)}
+                style={{ ...btnGhost, padding: "6px 11px", fontSize: 12, whiteSpace: "nowrap", flexShrink: 0 }}
+                title="Descarregar um ficheiro Excel em branco com as colunas certas e uma linha de exemplo"
+              >
+                <FileText size={13} /> Descarregar modelo
+              </button>
             </div>
           </>
         )}
