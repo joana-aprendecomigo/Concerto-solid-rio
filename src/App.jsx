@@ -5817,7 +5817,10 @@ const inputStyle = {
   padding: "9px 12px", borderRadius: 9, border: `1px solid ${C.line}`, fontSize: 13.5,
   fontFamily: "Inter, sans-serif", width: "100%", boxSizing: "border-box", outline: "none", color: C.ink,
 };
-const selectStyle = { ...inputStyle, background: "#fff", cursor: "pointer" };
+// Os filtros (Estado, Fase, Responsável, Ordenar) ficam lado a lado em vez de
+// empilhados: encolhem até 150px e não crescem além do que o texto precisa,
+// para não desperdiçar a largura toda de um ecrã grande.
+const selectStyle = { ...inputStyle, background: "#fff", cursor: "pointer", width: "auto", minWidth: 150, flex: "0 1 auto" };
 const btnPrimary = {
   display: "flex", alignItems: "center", gap: 7, padding: "9px 16px", borderRadius: 9, border: "none",
   background: C.accent, color: "#fff", fontWeight: 600, fontSize: 13.5, cursor: "pointer", fontFamily: "Inter, sans-serif",
