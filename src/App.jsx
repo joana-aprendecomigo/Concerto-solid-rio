@@ -205,6 +205,20 @@ const isLider = (nome) => {
   return papel === "lider" || (papel === "membro" && !membrosCarregados() && LIDERES.includes(nome));
 };
 
+// Visibilidade dos contactos: cada membro só vê os que lhe estão atribuídos.
+// Os "por atribuir" (sem responsável) só aparecem para líderes, que são quem
+// os distribui — um membro normal não teria o que fazer com um contacto que
+// ainda não é seu.
+//
+// `verTudo` é o interruptor dos líderes para recuperarem a visão de conjunto;
+// sem ele, mesmo um líder ficaria limitado ao que lhe está atribuído, o que
+// destruiria a supervisão que o cargo existe para dar.
+const contactoVisivelPara = (contact, user, verTudo) => {
+  if (verTudo && isLider(user)) return true;
+  if (contact.responsavel) return contact.responsavel === user;
+  return isLider(user);
+};
+
 // rótulos usados para gerar automaticamente as tarefas "Contactar X" a partir dos contactos
 const TASK_TIPOS = {
   artista: { label: "Artista", verbo: "Contactar artista" },
@@ -2231,7 +2245,15 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
   const [selectedIds, setSelectedIds] = useState([]); // ids selecionados para atribuição em massa
   const [bulkResp, setBulkResp] = useState("");
 
-  const list = artists || [];
+  // Interruptor dos líderes para verem toda a lista, não só os contactos
+  // atribuídos a si próprios — sem ele perderiam a visão de conjunto que o
+  // cargo justifica.
+  const [verTudo, setVerTudo] = useState(true);
+  const listaCompleta = artists || [];
+  const list = useMemo(
+    () => listaCompleta.filter((a) => contactoVisivelPara(a, user, verTudo)),
+    [listaCompleta, user, verTudo]
+  );
 
   // lista de responsáveis para o filtro: todos os membros da equipa já registados, mais quaisquer
   // nomes de responsável usados nos contactos que ainda não estejam nessa lista (garante que o filtro
@@ -2292,7 +2314,7 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
       historico: [evento, ...(contacto.historico || [])],
       atualizadoPor: user,
     };
-    await persistArtists(list.map((x) => (x.id === contacto.id ? atualizado : x)));
+    await persistArtists(listaCompleta.map((x) => (x.id === contacto.id ? atualizado : x)));
     if (novoEstado !== "Por contactar") await onConcluirTarefaContacto?.(contacto.id);
     // Confirmado ou Recusado encerram a negociação, e "Por contactar" recomeça
     // do zero: em qualquer dos casos as tarefas de follow-up pendentes
@@ -2308,7 +2330,7 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
   const alterarFaseRapido = async (contacto, novaFase) => {
     if ((contacto.fase || "") === novaFase) return;
     const atualizado = { ...contacto, fase: novaFase, atualizadoPor: user };
-    await persistArtists(list.map((x) => (x.id === contacto.id ? atualizado : x)));
+    await persistArtists(listaCompleta.map((x) => (x.id === contacto.id ? atualizado : x)));
     showToast(novaFase
       ? `${contacto.nome}: ${novaFase}.`
       : `${contacto.nome}: fase removida.`);
@@ -2321,7 +2343,7 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
     if ((contacto.responsavel || "") === novoResponsavel) return;
     const atualizado = { ...contacto, responsavel: novoResponsavel, atualizadoPor: user };
     if (novoResponsavel) registerMember(novoResponsavel);
-    await persistArtists(list.map((x) => (x.id === contacto.id ? atualizado : x)));
+    await persistArtists(listaCompleta.map((x) => (x.id === contacto.id ? atualizado : x)));
     showToast(novoResponsavel
       ? `${contacto.nome} atribuído a ${novoResponsavel}.`
       : `${contacto.nome}: responsável removido.`);
@@ -2333,7 +2355,7 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
   const alterarDataRapido = async (contacto, campo, novaData) => {
     if ((contacto[campo] || "") === novaData) return;
     const atualizado = { ...contacto, [campo]: novaData, atualizadoPor: user };
-    await persistArtists(list.map((x) => (x.id === contacto.id ? atualizado : x)));
+    await persistArtists(listaCompleta.map((x) => (x.id === contacto.id ? atualizado : x)));
   };
 
   const saveArtist = async (data) => {
@@ -2343,8 +2365,8 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
     const historico = data.historico || [];
     const withMeta = { ...data, historico, atualizadoPor: user, criadoPor: data.criadoPor || user };
     let next;
-    if (modal === "add") next = [withMeta, ...list];
-    else next = list.map((a) => (a.id === withMeta.id ? withMeta : a));
+    if (modal === "add") next = [withMeta, ...listaCompleta];
+    else next = listaCompleta.map((a) => (a.id === withMeta.id ? withMeta : a));
     if (withMeta.responsavel) registerMember(withMeta.responsavel);
     await persistArtists(next);
     if (withMeta.estado !== "Por contactar") await onConcluirTarefaContacto?.(withMeta.id);
@@ -2359,7 +2381,7 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
   };
 
   const confirmDelete = async () => {
-    const next = list.filter((a) => a.id !== toDelete.id);
+    const next = listaCompleta.filter((a) => a.id !== toDelete.id);
     await persistArtists(next);
     showToast(`${toDelete.nome} removido.`);
     setModal(null);
@@ -2377,16 +2399,24 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
   // reinicia o estado de contacto de todos os artistas para "Por contactar" — usar quando se vai
   // voltar a contactar toda a lista (limpa também o seguimento/follow-up, mas mantém os dados e a timeline)
   const reiniciarEstados = async () => {
-    const next = list.map((a) => ({
-      ...a,
-      estado: "Por contactar",
-      aguardaResposta: false,
-      faseFollowup: 0,
-      dataUltimoEnvio: "",
-      dataUltimoContacto: "",
-      dataProximoContacto: "",
-      atualizadoPor: user,
-    }));
+    // Reinicia apenas os contactos visíveis a quem clicou — um membro não
+    // deve conseguir reiniciar contactos de outra pessoa, e um líder com
+    // "ver tudo" desligado só reinicia os seus.
+    const idsVisiveis = new Set(list.map((a) => a.id));
+    const next = listaCompleta.map((a) => (
+      idsVisiveis.has(a.id)
+        ? {
+            ...a,
+            estado: "Por contactar",
+            aguardaResposta: false,
+            faseFollowup: 0,
+            dataUltimoEnvio: "",
+            dataUltimoContacto: "",
+            dataProximoContacto: "",
+            atualizadoPor: user,
+          }
+        : a
+    ));
     // As tarefas de follow-up dizem respeito a fases do seguimento que
     // deixaram de existir.
     await onFluxoReiniciado?.(next.map((a) => a.id));
@@ -2406,7 +2436,7 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
   // atribui, de uma só vez, o mesmo responsável a todos os artistas selecionados
   const atribuirResponsavelEmMassa = async () => {
     if (!bulkResp || selectedIds.length === 0) return;
-    const next = list.map((a) => (selectedIds.includes(a.id) ? { ...a, responsavel: bulkResp, atualizadoPor: user } : a));
+    const next = listaCompleta.map((a) => (selectedIds.includes(a.id) ? { ...a, responsavel: bulkResp, atualizadoPor: user } : a));
     registerMember(bulkResp);
     await persistArtists(next);
     showToast(`${selectedIds.length} artista${selectedIds.length > 1 ? "s" : ""} atribuído${selectedIds.length > 1 ? "s" : ""} a ${bulkResp}.`);
@@ -2493,6 +2523,7 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
 
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
         <CampoPesquisa value={search} onChange={setSearch} placeholder="Pesquisar por nome, agência, email…" />
+        {isLider(user) && <ToggleVerTudo verTudo={verTudo} setVerTudo={setVerTudo} rotulo="artistas" />}
         <select value={filterEstado} onChange={(e) => setFilterEstado(e.target.value)} style={selectStyle}>
           <option>Todos</option>
           {ESTADOS.map((e) => <option key={e.v}>{e.v}</option>)}
@@ -2632,7 +2663,7 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
         <ArtistModal
           data={editing}
           members={members}
-          existingList={list}
+          existingList={listaCompleta}
           onClose={() => { setModal(null); setEditing(null); }}
           onSave={saveArtist}
           isNew={modal === "add"}
@@ -2826,6 +2857,30 @@ function DataSelect({ contacto, campo, valor, onChange, etiqueta, disabled }) {
   );
 }
 
+// Interruptor exclusivo dos líderes para alternarem entre ver só os seus
+// contactos (como um membro normal) e ver toda a lista — sem ele, um líder
+// perderia a visão de conjunto que o cargo justifica.
+function ToggleVerTudo({ verTudo, setVerTudo, rotulo }) {
+  return (
+    <button
+      type="button"
+      onClick={() => setVerTudo((v) => !v)}
+      title={verTudo ? `A ver todos os ${rotulo}` : `A ver só os teus ${rotulo}`}
+      style={{
+        display: "flex", alignItems: "center", gap: 6, padding: "9px 12px", borderRadius: 9,
+        border: `1px solid ${verTudo ? C.line : C.accent}`,
+        background: verTudo ? "#fff" : C.accentSoft,
+        color: verTudo ? C.inkSoft : C.accent,
+        fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "Inter, sans-serif",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {verTudo ? <Users size={14} /> : <UserCircle2 size={14} />}
+      {verTudo ? "Toda a equipa" : "Só os meus"}
+    </button>
+  );
+}
+
 // Campo de pesquisa com um X para limpar rapidamente — só aparece quando há
 // texto escrito, e devolve o foco ao campo depois de limpar.
 function CampoPesquisa({ value, onChange, placeholder, containerStyle }) {
@@ -2922,7 +2977,12 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
   const [selectedIds, setSelectedIds] = useState([]); // ids selecionados para atribuição em massa
   const [bulkResp, setBulkResp] = useState("");
 
-  const list = spaces || [];
+  const [verTudo, setVerTudo] = useState(true);
+  const listaCompleta = spaces || [];
+  const list = useMemo(
+    () => listaCompleta.filter((a) => contactoVisivelPara(a, user, verTudo)),
+    [listaCompleta, user, verTudo]
+  );
 
   // lista de responsáveis para o filtro: todos os membros da equipa já registados, mais quaisquer
   // nomes de responsável usados nos contactos que ainda não estejam nessa lista (garante que o filtro
@@ -2981,7 +3041,7 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
       historico: [evento, ...(contacto.historico || [])],
       atualizadoPor: user,
     };
-    await persistSpaces(list.map((x) => (x.id === contacto.id ? atualizado : x)));
+    await persistSpaces(listaCompleta.map((x) => (x.id === contacto.id ? atualizado : x)));
     if (novoEstado !== "Por contactar") await onConcluirTarefaContacto?.(contacto.id);
     // Confirmado ou Recusado encerram a negociação, e "Por contactar" recomeça
     // do zero: em qualquer dos casos as tarefas de follow-up pendentes
@@ -2997,7 +3057,7 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
   const alterarFaseRapido = async (contacto, novaFase) => {
     if ((contacto.fase || "") === novaFase) return;
     const atualizado = { ...contacto, fase: novaFase, atualizadoPor: user };
-    await persistSpaces(list.map((x) => (x.id === contacto.id ? atualizado : x)));
+    await persistSpaces(listaCompleta.map((x) => (x.id === contacto.id ? atualizado : x)));
     showToast(novaFase
       ? `${contacto.nome}: ${novaFase}.`
       : `${contacto.nome}: fase removida.`);
@@ -3010,7 +3070,7 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
     if ((contacto.responsavel || "") === novoResponsavel) return;
     const atualizado = { ...contacto, responsavel: novoResponsavel, atualizadoPor: user };
     if (novoResponsavel) registerMember(novoResponsavel);
-    await persistSpaces(list.map((x) => (x.id === contacto.id ? atualizado : x)));
+    await persistSpaces(listaCompleta.map((x) => (x.id === contacto.id ? atualizado : x)));
     showToast(novoResponsavel
       ? `${contacto.nome} atribuído a ${novoResponsavel}.`
       : `${contacto.nome}: responsável removido.`);
@@ -3022,7 +3082,7 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
   const alterarDataRapido = async (contacto, campo, novaData) => {
     if ((contacto[campo] || "") === novaData) return;
     const atualizado = { ...contacto, [campo]: novaData, atualizadoPor: user };
-    await persistSpaces(list.map((x) => (x.id === contacto.id ? atualizado : x)));
+    await persistSpaces(listaCompleta.map((x) => (x.id === contacto.id ? atualizado : x)));
   };
 
   const saveSpace = async (data) => {
@@ -3032,8 +3092,8 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
     const historico = data.historico || [];
     const withMeta = { ...data, historico, atualizadoPor: user, criadoPor: data.criadoPor || user };
     let next;
-    if (modal === "add") next = [withMeta, ...list];
-    else next = list.map((a) => (a.id === withMeta.id ? withMeta : a));
+    if (modal === "add") next = [withMeta, ...listaCompleta];
+    else next = listaCompleta.map((a) => (a.id === withMeta.id ? withMeta : a));
     if (withMeta.responsavel) registerMember(withMeta.responsavel);
     await persistSpaces(next);
     if (withMeta.estado !== "Por contactar") await onConcluirTarefaContacto?.(withMeta.id);
@@ -3048,7 +3108,7 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
   };
 
   const confirmDelete = async () => {
-    const next = list.filter((a) => a.id !== toDelete.id);
+    const next = listaCompleta.filter((a) => a.id !== toDelete.id);
     await persistSpaces(next);
     showToast(`${toDelete.nome} removido.`);
     setModal(null);
@@ -3066,16 +3126,24 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
   // reinicia o estado de contacto de todos os espaços para "Por contactar" — usar quando se vai
   // voltar a contactar toda a lista (limpa também o seguimento/follow-up, mas mantém os dados e a timeline)
   const reiniciarEstados = async () => {
-    const next = list.map((a) => ({
-      ...a,
-      estado: "Por contactar",
-      aguardaResposta: false,
-      faseFollowup: 0,
-      dataUltimoEnvio: "",
-      dataUltimoContacto: "",
-      dataProximoContacto: "",
-      atualizadoPor: user,
-    }));
+    // Reinicia apenas os contactos visíveis a quem clicou — um membro não
+    // deve conseguir reiniciar contactos de outra pessoa, e um líder com
+    // "ver tudo" desligado só reinicia os seus.
+    const idsVisiveis = new Set(list.map((a) => a.id));
+    const next = listaCompleta.map((a) => (
+      idsVisiveis.has(a.id)
+        ? {
+            ...a,
+            estado: "Por contactar",
+            aguardaResposta: false,
+            faseFollowup: 0,
+            dataUltimoEnvio: "",
+            dataUltimoContacto: "",
+            dataProximoContacto: "",
+            atualizadoPor: user,
+          }
+        : a
+    ));
     // As tarefas de follow-up dizem respeito a fases do seguimento que
     // deixaram de existir.
     await onFluxoReiniciado?.(next.map((a) => a.id));
@@ -3095,7 +3163,7 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
   // atribui, de uma só vez, o mesmo responsável a todos os espaços selecionados
   const atribuirResponsavelEmMassa = async () => {
     if (!bulkResp || selectedIds.length === 0) return;
-    const next = list.map((a) => (selectedIds.includes(a.id) ? { ...a, responsavel: bulkResp, atualizadoPor: user } : a));
+    const next = listaCompleta.map((a) => (selectedIds.includes(a.id) ? { ...a, responsavel: bulkResp, atualizadoPor: user } : a));
     registerMember(bulkResp);
     await persistSpaces(next);
     showToast(`${selectedIds.length} espaço${selectedIds.length > 1 ? "s" : ""} atribuído${selectedIds.length > 1 ? "s" : ""} a ${bulkResp}.`);
@@ -3183,6 +3251,7 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
 
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
         <CampoPesquisa value={search} onChange={setSearch} placeholder="Pesquisar por nome, cidade, email…" />
+        {isLider(user) && <ToggleVerTudo verTudo={verTudo} setVerTudo={setVerTudo} rotulo="espaços" />}
         <select value={filterEstado} onChange={(e) => setFilterEstado(e.target.value)} style={selectStyle}>
           <option>Todos</option>
           {ESTADOS.map((e) => <option key={e.v}>{e.v}</option>)}
@@ -3325,7 +3394,7 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
         <EspacoModal
           data={editing}
           members={members}
-          existingList={list}
+          existingList={listaCompleta}
           onClose={() => { setModal(null); setEditing(null); }}
           onSave={saveSpace}
           isNew={modal === "add"}
@@ -4004,7 +4073,12 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
   const [selectedIds, setSelectedIds] = useState([]); // ids selecionados para atribuição em massa
   const [bulkResp, setBulkResp] = useState("");
 
-  const list = partners || [];
+  const [verTudo, setVerTudo] = useState(true);
+  const listaCompleta = partners || [];
+  const list = useMemo(
+    () => listaCompleta.filter((a) => contactoVisivelPara(a, user, verTudo)),
+    [listaCompleta, user, verTudo]
+  );
 
   // lista de responsáveis para o filtro: todos os membros da equipa já registados, mais quaisquer
   // nomes de responsável usados nos contactos que ainda não estejam nessa lista (garante que o filtro
@@ -4064,7 +4138,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
       historico: [evento, ...(contacto.historico || [])],
       atualizadoPor: user,
     };
-    await persistPartners(list.map((x) => (x.id === contacto.id ? atualizado : x)));
+    await persistPartners(listaCompleta.map((x) => (x.id === contacto.id ? atualizado : x)));
     if (novoEstado !== "Por contactar") await onConcluirTarefaContacto?.(contacto.id);
     // Confirmado ou Recusado encerram a negociação, e "Por contactar" recomeça
     // do zero: em qualquer dos casos as tarefas de follow-up pendentes
@@ -4080,7 +4154,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
   const alterarFaseRapido = async (contacto, novaFase) => {
     if ((contacto.fase || "") === novaFase) return;
     const atualizado = { ...contacto, fase: novaFase, atualizadoPor: user };
-    await persistPartners(list.map((x) => (x.id === contacto.id ? atualizado : x)));
+    await persistPartners(listaCompleta.map((x) => (x.id === contacto.id ? atualizado : x)));
     showToast(novaFase
       ? `${contacto.nome}: ${novaFase}.`
       : `${contacto.nome}: fase removida.`);
@@ -4093,7 +4167,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
     if ((contacto.responsavel || "") === novoResponsavel) return;
     const atualizado = { ...contacto, responsavel: novoResponsavel, atualizadoPor: user };
     if (novoResponsavel) registerMember(novoResponsavel);
-    await persistPartners(list.map((x) => (x.id === contacto.id ? atualizado : x)));
+    await persistPartners(listaCompleta.map((x) => (x.id === contacto.id ? atualizado : x)));
     showToast(novoResponsavel
       ? `${contacto.nome} atribuído a ${novoResponsavel}.`
       : `${contacto.nome}: responsável removido.`);
@@ -4105,7 +4179,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
   const alterarDataRapido = async (contacto, campo, novaData) => {
     if ((contacto[campo] || "") === novaData) return;
     const atualizado = { ...contacto, [campo]: novaData, atualizadoPor: user };
-    await persistPartners(list.map((x) => (x.id === contacto.id ? atualizado : x)));
+    await persistPartners(listaCompleta.map((x) => (x.id === contacto.id ? atualizado : x)));
   };
 
   const savePartner = async (data) => {
@@ -4115,8 +4189,8 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
     const historico = data.historico || [];
     const withMeta = { ...data, historico, atualizadoPor: user, criadoPor: data.criadoPor || user };
     let next;
-    if (modal === "add") next = [withMeta, ...list];
-    else next = list.map((a) => (a.id === withMeta.id ? withMeta : a));
+    if (modal === "add") next = [withMeta, ...listaCompleta];
+    else next = listaCompleta.map((a) => (a.id === withMeta.id ? withMeta : a));
     if (withMeta.responsavel) registerMember(withMeta.responsavel);
     await persistPartners(next);
     if (withMeta.estado !== "Por contactar") await onConcluirTarefaContacto?.(withMeta.id);
@@ -4131,7 +4205,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
   };
 
   const confirmDelete = async () => {
-    const next = list.filter((a) => a.id !== toDelete.id);
+    const next = listaCompleta.filter((a) => a.id !== toDelete.id);
     await persistPartners(next);
     showToast(`${toDelete.nome} removido.`);
     setModal(null);
@@ -4157,7 +4231,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
   // atribui, de uma só vez, o mesmo responsável a todos os parceiros selecionados
   const atribuirResponsavelEmMassa = async () => {
     if (!bulkResp || selectedIds.length === 0) return;
-    const next = list.map((a) => (selectedIds.includes(a.id) ? { ...a, responsavel: bulkResp, atualizadoPor: user } : a));
+    const next = listaCompleta.map((a) => (selectedIds.includes(a.id) ? { ...a, responsavel: bulkResp, atualizadoPor: user } : a));
     registerMember(bulkResp);
     await persistPartners(next);
     showToast(`${selectedIds.length} parceiro${selectedIds.length > 1 ? "s" : ""} atribuído${selectedIds.length > 1 ? "s" : ""} a ${bulkResp}.`);
@@ -4240,6 +4314,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
 
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
         <CampoPesquisa value={search} onChange={setSearch} placeholder="Pesquisar por nome, contributo, email…" />
+        {isLider(user) && <ToggleVerTudo verTudo={verTudo} setVerTudo={setVerTudo} rotulo="parceiros" />}
         <select value={filterCategoria} onChange={(e) => setFilterCategoria(e.target.value)} style={selectStyle}>
           <option>Todas</option>
           {CATEGORIAS_PARCEIROS.map((c) => <option key={c.v}>{c.v}</option>)}
@@ -4389,7 +4464,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
         <ParceiroModal
           data={editing}
           members={members}
-          existingList={list}
+          existingList={listaCompleta}
           onClose={() => { setModal(null); setEditing(null); }}
           onSave={savePartner}
           isNew={modal === "add"}
