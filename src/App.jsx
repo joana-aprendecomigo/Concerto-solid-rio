@@ -2423,7 +2423,7 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
 
   // regista automaticamente um envio de email na timeline e ativa o seguimento/follow-up automático
   const registerSend = async (contactId, entry) => {
-    const next = list.map((a) => (a.id === contactId ? aplicarEnvioEmailContacto(a, entry) : a));
+    const next = listaCompleta.map((a) => (a.id === contactId ? aplicarEnvioEmailContacto(a, entry) : a));
     await persistArtists(next);
     await onConcluirTarefaContacto?.(contactId);
     showToast(`E-mail registado — "${entry.templateNome}". Contacto passou para "A aguardar resposta".`);
@@ -3333,7 +3333,7 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
 
   // regista automaticamente um envio de email na timeline e ativa o seguimento/follow-up automático
   const registerSend = async (contactId, entry) => {
-    const next = list.map((a) => (a.id === contactId ? aplicarEnvioEmailContacto(a, entry) : a));
+    const next = listaCompleta.map((a) => (a.id === contactId ? aplicarEnvioEmailContacto(a, entry) : a));
     await persistSpaces(next);
     await onConcluirTarefaContacto?.(contactId);
     showToast(`E-mail registado — "${entry.templateNome}". Contacto passou para "A aguardar resposta".`);
@@ -4434,7 +4434,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
 
   // regista automaticamente um envio de email na timeline e ativa o seguimento/follow-up automático
   const registerSend = async (contactId, entry) => {
-    const next = list.map((a) => (a.id === contactId ? aplicarEnvioEmailContacto(a, entry) : a));
+    const next = listaCompleta.map((a) => (a.id === contactId ? aplicarEnvioEmailContacto(a, entry) : a));
     await persistPartners(next);
     await onConcluirTarefaContacto?.(contactId);
     showToast(`E-mail registado — "${entry.templateNome}". Contacto passou para "A aguardar resposta".`);
