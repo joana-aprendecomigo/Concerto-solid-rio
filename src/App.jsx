@@ -387,6 +387,7 @@ const MODULES = [
   { key: "artistas", label: "Artistas", icon: Music2, active: true },
   { key: "espacos", label: "Espaços", icon: MapPin, active: true },
   { key: "parceiros", label: "Parceiros", icon: Handshake, active: true },
+  { key: "followups", label: "Follow-ups", icon: Workflow, active: true },
   { key: "templates", label: "Templates de Email", icon: Mails, active: true },
   { key: "tarefas", label: "Tarefas", icon: ListChecks, active: true },
   { key: "documentos", label: "Documentos", icon: FileText, active: true },
@@ -1550,6 +1551,17 @@ export default function App() {
             onEditEvento={editarEventoHandlers.parceiro}
             onConcluirTarefaContacto={concluirTarefaHandlers.parceiro}
             onFluxoReiniciado={fluxoReiniciadoHandlers.parceiro}
+          />
+        ) : module === "followups" ? (
+          <FollowUpsModule
+            listByTipo={listByTipo}
+            user={user}
+            soLeitura={soLeitura}
+            showToast={showToast}
+            intervaloDaFase={intervaloDaFase}
+            diasDesdeUltimoEnvio={diasDesdeUltimoEnvio}
+            onResposta={respostaHandlers}
+            templates={templates}
           />
         ) : module === "templates" ? (
           <TemplatesModule
@@ -2853,6 +2865,32 @@ function DataSelect({ contacto, campo, valor, onChange, etiqueta, disabled }) {
           opacity: 0, cursor: "pointer", border: "none", padding: 0,
         }}
       />
+    </div>
+  );
+}
+
+// Barra de progresso da contagem de dias sem resposta, usada no módulo
+// Follow-ups. `dias` e `intervalo` vêm das funções que já existiam
+// (diasDesdeUltimoEnvio / intervaloDaFase) — este componente só desenha o que
+// elas calculam, sem reimplementar a lógica de prazos.
+function BarraContagem({ dias, intervalo }) {
+  const pct = Math.max(0, Math.min(100, Math.round((dias / intervalo) * 100)));
+  const restantes = Math.max(0, intervalo - dias);
+  const atrasado = dias >= intervalo;
+  const cor = atrasado ? C.red : pct >= 70 ? C.amber : C.teal;
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 5 }}>
+        <span style={{ fontSize: 11.5, color: C.inkSoft, fontWeight: 500 }}>
+          Dia {Math.min(dias, intervalo)} de {intervalo}
+        </span>
+        <span style={{ fontSize: 11.5, fontWeight: 700, color: cor }}>
+          {atrasado ? "Prazo esgotado" : `${restantes} dia${restantes === 1 ? "" : "s"} restante${restantes === 1 ? "" : "s"}`}
+        </span>
+      </div>
+      <div style={{ height: 7, borderRadius: 999, background: C.grayBg, overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${pct}%`, background: cor, borderRadius: 999, transition: "width .3s ease" }} />
+      </div>
     </div>
   );
 }
@@ -5196,6 +5234,155 @@ function TemplatePreviewModal({ template, onClose }) {
 }
 
 /* ---------- tarefas module ---------- */
+/* ---------- Follow-ups: vista pessoal de acompanhamento ---------- */
+// Um cartão por contacto (artista, espaço ou parceiro) que a pessoa tem
+// atribuído e que está "A aguardar resposta". Mostra a fase atual do
+// seguimento e a contagem de dias até ao próximo follow-up automático.
+//
+// Não reimplementa a lógica de prazos: usa as mesmas funções que já geram os
+// follow-ups automáticos (intervaloDaFase, diasDesdeUltimoEnvio), para o que
+// se vê aqui nunca poder divergir do que a plataforma faz sozinha.
+function FollowUpsModule({
+  listByTipo, user, showToast, soLeitura,
+  intervaloDaFase, diasDesdeUltimoEnvio, onResposta, templates,
+}) {
+  const [verTudo, setVerTudo] = useState(false);
+  const [tipoFiltro, setTipoFiltro] = useState("Todos");
+  const [ocupadoId, setOcupadoId] = useState(null);
+
+  const contactos = useMemo(() => {
+    const todos = [
+      ...(listByTipo.artista || []).map((c) => ({ ...c, _tipo: "artista" })),
+      ...(listByTipo.espaco || []).map((c) => ({ ...c, _tipo: "espaco" })),
+      ...(listByTipo.parceiro || []).map((c) => ({ ...c, _tipo: "parceiro" })),
+    ];
+    return todos
+      .filter((c) => c.aguardaResposta && c.dataUltimoEnvio)
+      .filter((c) => verTudo || c.responsavel === user)
+      .filter((c) => tipoFiltro === "Todos" || c._tipo === tipoFiltro)
+      .map((c) => {
+        const dias = diasDesdeUltimoEnvio(c) ?? 0;
+        const intervalo = intervaloDaFase(c._tipo, c.faseFollowup);
+        return { ...c, _dias: dias, _intervalo: intervalo };
+      })
+      // Mais urgente primeiro: quem está mais perto do prazo (ou já o passou).
+      .sort((a, b) => (b._dias / b._intervalo) - (a._dias / a._intervalo));
+  }, [listByTipo, user, verTudo, tipoFiltro, diasDesdeUltimoEnvio, intervaloDaFase]);
+
+  const registarResposta = async (contacto, teveResposta) => {
+    setOcupadoId(contacto.id);
+    try {
+      await onResposta[contacto._tipo](contacto.id, teveResposta);
+    } finally {
+      setOcupadoId(null);
+    }
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 22, flexWrap: "wrap", gap: 14 }}>
+        <div>
+          <div style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, fontSize: 24, color: C.ink }}>Follow-ups</div>
+          <div style={{ fontSize: 13, color: C.inkSoft, marginTop: 4 }}>
+            Contactos à espera de resposta, com a contagem até ao próximo follow-up automático.
+          </div>
+        </div>
+        {isLider(user) && <ToggleVerTudo verTudo={verTudo} setVerTudo={setVerTudo} rotulo="follow-ups" />}
+      </div>
+
+      <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+        {["Todos", "artista", "espaco", "parceiro"].map((t) => {
+          const rotulo = t === "Todos" ? "Todos" : TIPOS_CONTACTO[t].label + "s";
+          const ativo = tipoFiltro === t;
+          return (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setTipoFiltro(t)}
+              style={{
+                padding: "8px 14px", borderRadius: 999, border: `1px solid ${ativo ? C.accent : C.line}`,
+                background: ativo ? C.accentSoft : "#fff", color: ativo ? C.accent : C.inkSoft,
+                fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "Inter, sans-serif",
+              }}
+            >
+              {rotulo}
+            </button>
+          );
+        })}
+      </div>
+
+      {contactos.length === 0 ? (
+        <div style={{ background: C.panel, borderRadius: 14, border: `1px solid ${C.line}`, padding: "50px 20px", textAlign: "center", color: C.inkSoft }}>
+          <Workflow size={28} color={C.gray} style={{ marginBottom: 10 }} />
+          <div style={{ fontWeight: 600, color: C.ink, marginBottom: 4 }}>Sem follow-ups pendentes</div>
+          <div style={{ fontSize: 13.5 }}>
+            {verTudo
+              ? "Não há contactos à espera de resposta neste momento."
+              : "Não tens contactos à espera de resposta atribuídos a ti."}
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14 }}>
+          {contactos.map((c) => {
+            const tipoInfo = TIPOS_CONTACTO[c._tipo];
+            const TipoIcon = tipoInfo.icon;
+            const fase = c.faseFollowup || 1;
+            const atrasado = c._dias >= c._intervalo;
+            return (
+              <div key={c.id} style={{ background: C.panel, borderRadius: 14, border: `1px solid ${atrasado ? C.red + "55" : C.line}`, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                      <TipoIcon size={13} color={C.inkSoft} style={{ flexShrink: 0 }} />
+                      <span style={{ fontSize: 11, color: C.inkSoft, fontWeight: 600 }}>{tipoInfo.label}</span>
+                    </div>
+                    <div style={{ fontWeight: 700, fontSize: 14.5, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.nome}</div>
+                  </div>
+                  <span style={{ display: "inline-flex", alignItems: "center", padding: "3px 9px", borderRadius: 999, background: C.tealBg, color: C.teal, fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0 }}>
+                    Fase {fase}
+                  </span>
+                </div>
+
+                {c.responsavel && c.responsavel !== user && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, color: C.inkSoft }}>
+                    <UserCircle2 size={12} /> {c.responsavel}
+                  </div>
+                )}
+
+                <BarraContagem dias={c._dias} intervalo={c._intervalo} />
+
+                {!soLeitura && (
+                  <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+                    <button
+                      type="button"
+                      disabled={ocupadoId === c.id}
+                      onClick={() => registarResposta(c, true)}
+                      style={{ ...btnGhost, flex: 1, padding: "7px 10px", fontSize: 12.5, justifyContent: "center", opacity: ocupadoId === c.id ? 0.6 : 1 }}
+                    >
+                      <CheckCircle2 size={13} color={C.green} /> Respondeu
+                    </button>
+                    {atrasado && (
+                      <button
+                        type="button"
+                        disabled={ocupadoId === c.id}
+                        onClick={() => registarResposta(c, false)}
+                        style={{ ...btnPrimary, flex: 1, padding: "7px 10px", fontSize: 12.5, justifyContent: "center", opacity: ocupadoId === c.id ? 0.6 : 1 }}
+                        title="Cria o follow-up desta fase e avança a contagem"
+                      >
+                        <Workflow size={13} /> Criar follow-up
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TarefasModule({
   tasks, persistTasks, user, showToast, onToggleTask, onSetTaskEstado,
   templates, listByTipo, onResposta, members, remetente, soLeitura, dadosEquipa,
