@@ -2478,6 +2478,19 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
   };
 
   // exporta a lista completa de artistas (todos os campos já existentes na plataforma) para Excel
+  // Grava vários artistas de uma vez, vindos do modal de importação (colar
+  // lista ou Excel). Usa listaCompleta, como as restantes escritas deste
+  // módulo — gravar sobre a lista filtrada apagaria os contactos que a
+  // pessoa não está a ver.
+  const importarArtistas = async (registos) => {
+    const agora = new Date().toISOString();
+    const novos = registos.map((r) => ({
+      ...blankArtist(), ...r, criadoPor: user, atualizadoPor: user,
+    }));
+    await persistArtists([...novos, ...listaCompleta]);
+    showToast(`${novos.length} artista${novos.length === 1 ? "" : "s"} adicionado${novos.length === 1 ? "" : "s"}.`);
+  };
+
   const exportarArtistas = () => {
     const linhas = list.map((a, idx) => ({
       "Nº": idx + 1,
@@ -2511,6 +2524,9 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
             <>
               <button onClick={() => setModal("reset")} style={btnGhost} title="Voltar a marcar todos os artistas como 'Por contactar', para uma nova ronda de contactos">
                 <RotateCcw size={15} /> Reiniciar estados
+              </button>
+              <button onClick={() => setModal("importar")} style={btnGhost} title="Adicionar vários artistas de uma vez">
+                <Users size={15} /> Adicionar vários
               </button>
               <button onClick={() => { setEditing(blankArtist()); setModal("add"); }} style={btnPrimary}>
                 <Plus size={15} /> Adicionar Artista
@@ -2729,6 +2745,17 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
           danger
           onCancel={() => setModal(null)}
           onConfirm={reiniciarEstados}
+        />
+      )}
+
+      {modal === "importar" && (
+        <ModalImportarContactos
+          tipo="artista"
+          blank={blankArtist}
+          existingList={listaCompleta}
+          onClose={() => setModal(null)}
+          onImportar={importarArtistas}
+          rotuloTipo="artistas"
         />
       )}
 
@@ -3388,6 +3415,14 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
   };
 
   // exporta a lista completa de espaços (todos os campos já existentes na plataforma) para Excel
+  const importarEspacos = async (registos) => {
+    const novos = registos.map((r) => ({
+      ...blankSpace(), ...r, criadoPor: user, atualizadoPor: user,
+    }));
+    await persistSpaces([...novos, ...listaCompleta]);
+    showToast(`${novos.length} espaço${novos.length === 1 ? "" : "s"} adicionado${novos.length === 1 ? "" : "s"}.`);
+  };
+
   const exportarEspacos = () => {
     const linhas = list.map((a, idx) => ({
       "Nº": idx + 1,
@@ -3422,6 +3457,9 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
             <>
               <button onClick={() => setModal("reset")} style={btnGhost} title="Voltar a marcar todos os espaços como 'Por contactar', para uma nova ronda de contactos">
                 <RotateCcw size={15} /> Reiniciar estados
+              </button>
+              <button onClick={() => setModal("importar")} style={btnGhost} title="Adicionar vários espaços de uma vez">
+                <Users size={15} /> Adicionar vários
               </button>
               <button onClick={() => { setEditing(blankSpace()); setModal("add"); }} style={btnPrimary}>
                 <Plus size={15} /> Adicionar Espaço
@@ -3643,6 +3681,17 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
           danger
           onCancel={() => setModal(null)}
           onConfirm={reiniciarEstados}
+        />
+      )}
+
+      {modal === "importar" && (
+        <ModalImportarContactos
+          tipo="espaco"
+          blank={blankSpace}
+          existingList={listaCompleta}
+          onClose={() => setModal(null)}
+          onImportar={importarEspacos}
+          rotuloTipo="espaços"
         />
       )}
 
@@ -4460,6 +4509,14 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
   };
 
   // exporta a lista completa de parceiros (todos os campos já existentes na plataforma) para Excel
+  const importarParceiros = async (registos) => {
+    const novos = registos.map((r) => ({
+      ...blankPartner(), ...r, criadoPor: user, atualizadoPor: user,
+    }));
+    await persistPartners([...novos, ...listaCompleta]);
+    showToast(`${novos.length} parceiro${novos.length === 1 ? "" : "s"} adicionado${novos.length === 1 ? "" : "s"}.`);
+  };
+
   const exportarParceiros = () => {
     const linhas = list.map((a, idx) => ({
       "Nº": idx + 1,
@@ -4491,9 +4548,14 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
             <Download size={15} /> Exportar Excel
           </button>
           {!soLeitura && (
-            <button onClick={() => { setEditing(blankPartner()); setModal("add"); }} style={btnPrimary}>
-              <Plus size={15} /> Adicionar Parceiro
-            </button>
+            <>
+              <button onClick={() => setModal("importar")} style={btnGhost} title="Adicionar vários parceiros de uma vez">
+                <Users size={15} /> Adicionar vários
+              </button>
+              <button onClick={() => { setEditing(blankPartner()); setModal("add"); }} style={btnPrimary}>
+                <Plus size={15} /> Adicionar Parceiro
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -4706,6 +4768,17 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
           danger
           onCancel={() => { setModal(null); setToDelete(null); }}
           onConfirm={confirmDelete}
+        />
+      )}
+
+      {modal === "importar" && (
+        <ModalImportarContactos
+          tipo="parceiro"
+          blank={blankPartner}
+          existingList={listaCompleta}
+          onClose={() => setModal(null)}
+          onImportar={importarParceiros}
+          rotuloTipo="parceiros"
         />
       )}
 
@@ -6229,6 +6302,247 @@ function TaskModal({ data, onClose, onSave, isNew, members }) {
           <button type="submit" style={btnPrimary}>{isNew ? "Adicionar" : "Guardar alterações"}</button>
         </div>
       </form>
+    </Overlay>
+  );
+}
+
+// Campos específicos de cada tipo de contacto, para o mapeamento de colunas
+// do Excel — os campos comuns (nome, pessoaContacto, email, ...) são os
+// mesmos para os três, só estes variam.
+const CAMPOS_EXTRA_POR_TIPO = {
+  artista: [{ key: "agencia", rotulos: ["agência", "agencia"] }],
+  espaco: [
+    { key: "cidade", rotulos: ["cidade"] },
+    { key: "capacidade", rotulos: ["capacidade"] },
+  ],
+  parceiro: [
+    { key: "categoria", rotulos: ["categoria"] },
+    { key: "contributo", rotulos: ["contributo", "contributo / apoio"] },
+  ],
+};
+
+const CAMPOS_COMUNS = [
+  { key: "nome", rotulos: ["nome"], obrigatorio: true },
+  { key: "pessoaContacto", rotulos: ["pessoa de contacto", "pessoa contacto", "contacto"] },
+  { key: "email", rotulos: ["email", "e-mail"] },
+  { key: "telefone", rotulos: ["telefone", "telemóvel"] },
+  { key: "observacoes", rotulos: ["observações", "observacoes", "notas"] },
+];
+
+// Adiciona vários contactos de uma vez, por duas vias: colar uma lista de
+// nomes (um por linha) ou carregar um ficheiro Excel com as mesmas colunas
+// que a exportação já produz. Em ambos os casos há pré-visualização e aviso
+// de duplicados antes de confirmar — nada é gravado sem o utilizador ver
+// exatamente o que vai entrar.
+function ModalImportarContactos({ tipo, blank, existingList, onClose, onImportar, rotuloTipo }) {
+  const [modo, setModo] = useState("colar"); // 'colar' | 'excel'
+  const [textoColado, setTextoColado] = useState("");
+  const [ficheiroNome, setFicheiroNome] = useState("");
+  const [linhas, setLinhas] = useState([]); // pré-visualização: [{ dados, duplicado }]
+  const [erro, setErro] = useState("");
+  const [aImportar, setAImportar] = useState(false);
+  const fileInputRef = useRef(null);
+
+  const camposExtra = CAMPOS_EXTRA_POR_TIPO[tipo] || [];
+
+  const prepararLinhas = (registos) => {
+    // Ignora linhas sem nome, e duplicados dentro do próprio lote colado/
+    // importado — sem isto, colar o mesmo nome duas vezes criava dois
+    // contactos idênticos de uma só vez.
+    const vistosNoLote = new Set();
+    const preparadas = [];
+    registos.forEach((dados) => {
+      const nome = (dados.nome || "").trim();
+      if (!nome) return;
+      const chave = normNome(nome);
+      const duplicadoNoLote = vistosNoLote.has(chave);
+      vistosNoLote.add(chave);
+      const duplicadoExistente = !duplicadoNoLote && encontrarDuplicadoPorNome(existingList, nome, null);
+      preparadas.push({
+        dados: { ...blank(), ...dados, nome },
+        duplicado: duplicadoNoLote ? "repetido nesta lista" : duplicadoExistente ? `já existe: "${duplicadoExistente.nome}"` : null,
+      });
+    });
+    setLinhas(preparadas);
+  };
+
+  // Colar lista: um nome por linha. Aceita também "Nome, agência" ou
+  // "Nome - agência" numa única linha, para quem já tem os dados assim.
+  const processarTexto = (texto) => {
+    setTextoColado(texto);
+    setErro("");
+    const registos = texto
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((linha) => {
+        const partes = linha.split(/,|—|-(?!\d)/).map((p) => p.trim()).filter(Boolean);
+        const dados = { nome: partes[0] || "" };
+        if (partes[1] && camposExtra[0]) dados[camposExtra[0].key] = partes[1];
+        return dados;
+      });
+    prepararLinhas(registos);
+  };
+
+  // Excel: procura as colunas pelo nome do cabeçalho, ignorando maiúsculas e
+  // acentos — para funcionar com o ficheiro tal como a plataforma o exporta,
+  // sem obrigar a pessoa a renomear colunas.
+  const processarExcel = async (ficheiro) => {
+    setErro("");
+    setFicheiroNome(ficheiro.name);
+    try {
+      const buffer = await ficheiro.arrayBuffer();
+      const wb = XLSX.read(buffer, { type: "array" });
+      const primeira = wb.SheetNames[0];
+      const linhasXlsx = XLSX.utils.sheet_to_json(wb.Sheets[primeira], { defval: "" });
+      if (!linhasXlsx.length) {
+        setErro("A folha está vazia.");
+        setLinhas([]);
+        return;
+      }
+      const cabecalhos = Object.keys(linhasXlsx[0]);
+      const encontrarColuna = (rotulos) =>
+        cabecalhos.find((c) => rotulos.includes(normNome(c)));
+
+      const mapaCampos = [...CAMPOS_COMUNS, ...camposExtra].map((campo) => ({
+        ...campo,
+        coluna: encontrarColuna(campo.rotulos),
+      }));
+
+      if (!mapaCampos.find((c) => c.key === "nome")?.coluna) {
+        setErro('Não encontrei uma coluna "Nome" no ficheiro.');
+        setLinhas([]);
+        return;
+      }
+
+      const registos = linhasXlsx.map((linhaXlsx) => {
+        const dados = {};
+        mapaCampos.forEach((campo) => {
+          if (campo.coluna) dados[campo.key] = String(linhaXlsx[campo.coluna] || "").trim();
+        });
+        return dados;
+      });
+      prepararLinhas(registos);
+    } catch (e) {
+      setErro("Não consegui ler este ficheiro. Confirma que é um .xlsx válido.");
+      setLinhas([]);
+    }
+  };
+
+  const validas = linhas.filter((l) => !l.duplicado);
+  const comAviso = linhas.filter((l) => l.duplicado);
+
+  const confirmar = async () => {
+    if (!validas.length) return;
+    setAImportar(true);
+    try {
+      await onImportar(validas.map((l) => l.dados));
+      onClose();
+    } finally {
+      setAImportar(false);
+    }
+  };
+
+  return (
+    <Overlay onClose={onClose} wide>
+      <div style={{ padding: "20px 24px", borderBottom: `1px solid ${C.line}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, fontSize: 17, color: C.ink }}>
+          Adicionar vários {rotuloTipo}
+        </div>
+        <button onClick={onClose} style={iconBtn}><X size={17} /></button>
+      </div>
+
+      <div style={{ display: "flex", gap: 4, padding: "12px 24px 0", borderBottom: `1px solid ${C.line}` }}>
+        <button type="button" onClick={() => { setModo("colar"); setLinhas([]); setErro(""); }} style={tabBtn(modo === "colar")}>Colar lista</button>
+        <button type="button" onClick={() => { setModo("excel"); setLinhas([]); setErro(""); }} style={tabBtn(modo === "excel")}>Importar Excel</button>
+      </div>
+
+      <div style={{ padding: "18px 24px", maxHeight: "56vh", overflowY: "auto" }}>
+        {modo === "colar" ? (
+          <>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.inkSoft, marginBottom: 6 }}>
+              Um nome por linha. Também aceita "Nome, {camposExtra[0]?.rotulos[0] || "detalhe"}" na mesma linha.
+            </label>
+            <textarea
+              rows={8}
+              value={textoColado}
+              onChange={(e) => processarTexto(e.target.value)}
+              placeholder={`Mariza\nRui Veloso, Sons em Trânsito\nDino d'Santiago`}
+              style={{ ...inputStyle, resize: "vertical", fontFamily: "Inter, sans-serif", width: "100%", boxSizing: "border-box" }}
+            />
+          </>
+        ) : (
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={(e) => e.target.files[0] && processarExcel(e.target.files[0])}
+              style={{ display: "none" }}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              style={{ ...btnGhost, width: "100%", justifyContent: "center", padding: "24px", borderStyle: "dashed" }}
+            >
+              <Download size={16} style={{ transform: "rotate(180deg)" }} />
+              {ficheiroNome || "Escolher ficheiro .xlsx"}
+            </button>
+            <div style={{ marginTop: 10, fontSize: 12, color: C.inkSoft, lineHeight: 1.5 }}>
+              Usa as mesmas colunas do "Exportar Excel" desta lista — a coluna "Nome" é obrigatória, as restantes são opcionais.
+            </div>
+          </>
+        )}
+
+        {erro && (
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", borderRadius: 9, background: C.redBg, color: C.red, fontSize: 12.5, fontWeight: 500, marginTop: 14 }}>
+            <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} /> {erro}
+          </div>
+        )}
+
+        {linhas.length > 0 && (
+          <div style={{ marginTop: 18 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>
+                {validas.length} pronto{validas.length === 1 ? "" : "s"} a adicionar
+              </span>
+              {comAviso.length > 0 && (
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: C.amber }}>
+                  {comAviso.length} ignorado{comAviso.length === 1 ? "" : "s"} por duplicado
+                </span>
+              )}
+            </div>
+            <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" }}>
+              {linhas.map((l, i) => (
+                <div
+                  key={i}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", fontSize: 12.5,
+                    borderBottom: i < linhas.length - 1 ? `1px solid ${C.line}` : "none",
+                    background: l.duplicado ? C.amberBg : "#fff", opacity: l.duplicado ? 0.75 : 1,
+                  }}
+                >
+                  {l.duplicado ? <AlertTriangle size={12} color={C.amber} style={{ flexShrink: 0 }} /> : <CheckCircle2 size={12} color={C.green} style={{ flexShrink: 0 }} />}
+                  <span style={{ fontWeight: 600, color: C.ink, flexShrink: 0 }}>{l.dados.nome}</span>
+                  {l.duplicado && <span style={{ color: C.amber, fontSize: 11.5 }}>— {l.duplicado}</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={{ padding: "16px 24px", borderTop: `1px solid ${C.line}`, display: "flex", justifyContent: "flex-end", gap: 10 }}>
+        <button type="button" onClick={onClose} style={btnGhost} disabled={aImportar}>Cancelar</button>
+        <button
+          type="button"
+          onClick={confirmar}
+          disabled={!validas.length || aImportar}
+          style={{ ...btnPrimary, opacity: !validas.length || aImportar ? 0.5 : 1, cursor: !validas.length || aImportar ? "not-allowed" : "pointer" }}
+        >
+          <Plus size={15} /> {aImportar ? "A adicionar…" : `Adicionar ${validas.length || ""}`}
+        </button>
+      </div>
     </Overlay>
   );
 }
