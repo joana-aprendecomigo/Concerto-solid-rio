@@ -177,15 +177,36 @@ async function guardarContactos(chave, tipo, novos) {
   });
 
   if (criados.length) {
-    const { error } = await supabase.from("contacts").insert(
-      criados.map((c) => {
-        const linha = contactoParaBD(c, tipo);
-        // Quem gere estas colunas é a base de dados.
-        delete linha.atualizado_em;
-        return linha;
-      })
-    );
-    if (error) throw error;
+    const linhas = criados.map((c) => {
+      const linha = contactoParaBD(c, tipo);
+      // Quem gere estas colunas é a base de dados.
+      delete linha.atualizado_em;
+      return linha;
+    });
+
+    const { error } = await supabase.from("contacts").insert(linhas);
+
+    if (error) {
+      // Um insert em lote é tudo-ou-nada: bastava um nome repetido para o
+      // Postgres rejeitar o lote inteiro e todos os contactos novos se
+      // perderem, mesmo os que não tinham problema nenhum. Quem adicionava
+      // vários seguidos via-os desaparecer sem perceber porquê.
+      //
+      // Nesse caso repete-se um a um, para guardar tudo o que é válido e
+      // saber exatamente quais falharam.
+      if (error.code !== "23505") throw error;
+
+      const repetidos = [];
+      for (const linha of linhas) {
+        const { error: erroLinha } = await supabase.from("contacts").insert(linha);
+        if (!erroLinha) continue;
+        if (erroLinha.code === "23505") repetidos.push(linha.nome);
+        else throw erroLinha;
+      }
+      if (repetidos.length && typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("concerto:duplicados", { detail: repetidos }));
+      }
+    }
   }
 
   for (const { antigo, novo } of editados) {
@@ -272,18 +293,34 @@ async function guardarSimples(chave, tabela, novos, paraBD) {
     return !antigo || JSON.stringify(antigo) !== JSON.stringify(x);
   });
   if (paraGravar.length) {
-    const { error } = await supabase.from(tabela).upsert(paraGravar.map(paraBD));
+    const linhas = paraGravar.map(paraBD);
+    const { error } = await supabase.from(tabela).upsert(linhas);
+
     if (error) {
-      // As tarefas automáticas (primeiro contacto e follow-up) são geradas em
-      // paralelo por todos os browsers abertos, por isso duas pessoas podem
-      // tentar criar a mesma ao mesmo tempo. O índice único garante que só uma
-      // fica — a colisão é o mecanismo a funcionar, não um erro para mostrar a
-      // quem por acaso perdeu a corrida.
-      const colisaoDeTarefaAutomatica =
-        tabela === "tasks" &&
-        error.code === "23505" &&
-        paraGravar.every((t) => t.origem_contact_id);
-      if (!colisaoDeTarefaAutomatica) throw error;
+      // O upsert em lote é tudo-ou-nada: bastava uma colisão (uma fase de
+      // template repetida, uma tarefa automática que outro browser já criou)
+      // para o Postgres rejeitar o lote inteiro — incluindo tarefas ou
+      // templates novos, sem problema nenhum, que se perderiam juntamente.
+      if (error.code !== "23505") throw error;
+
+      let algumaFalha = false;
+      for (const linha of linhas) {
+        const { error: erroLinha } = await supabase.from(tabela).upsert(linha);
+        if (!erroLinha) continue;
+        // As tarefas automáticas (primeiro contacto e follow-up) são geradas
+        // em paralelo por todos os browsers abertos: duas pessoas podem criar
+        // a mesma ao mesmo tempo. O índice único garante que só uma fica — é
+        // o mecanismo a funcionar, não um erro a mostrar a quem perdeu a
+        // corrida.
+        const colisaoDeTarefaAutomatica =
+          tabela === "tasks" && erroLinha.code === "23505" && linha.origem_contact_id;
+        if (colisaoDeTarefaAutomatica) continue;
+        algumaFalha = true;
+        console.error(`[Concerto] Falha ao guardar em ${tabela}:`, erroLinha, linha);
+      }
+      if (algumaFalha) {
+        throw new Error(`Algum registo não foi guardado em "${tabela}" (ver consola).`);
+      }
     }
   }
 

@@ -68,6 +68,20 @@ export default function AppComRealtime() {
     return () => window.removeEventListener("concerto:conflito", aoConflito);
   }, []);
 
+  // Contactos que não foram guardados por já existir outro com o mesmo nome.
+  useEffect(() => {
+    const aoDuplicado = (e) => {
+      const nomes = e.detail || [];
+      setAviso(
+        `${nomes.length === 1 ? "Não foi guardado" : "Não foram guardados"}: ` +
+          `${nomes.join(", ")} — já existe um contacto com esse nome. ` +
+          "Os restantes foram guardados."
+      );
+    };
+    window.addEventListener("concerto:duplicados", aoDuplicado);
+    return () => window.removeEventListener("concerto:duplicados", aoDuplicado);
+  }, []);
+
   useEffect(() => {
     if (!supabaseConfigurado) return;
 
