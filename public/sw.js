@@ -12,7 +12,12 @@
 // servidor, para uma versão nova entrar em vigor no recarregamento seguinte.
 // ============================================================================
 
-const CACHE = "concerto-v1";
+// Subir este número a cada alteração relevante do service worker força o
+// browser a tratá-lo como um ficheiro novo e a instalar a versão seguinte
+// mais depressa — sem isto, uma alteração ao próprio sw.js podia demorar
+// dias a chegar a quem tem a plataforma instalada como app, porque o
+// browser só o volta a pedir ao servidor de vez em quando.
+const CACHE = "concerto-v2";
 
 // Só os ícones: o HTML e o JS têm de vir sempre frescos, senão uma versão nova
 // da plataforma podia demorar dias a chegar a quem a tem instalada.
@@ -28,8 +33,16 @@ const ESTATICOS = [
 
 self.addEventListener("install", (evento) => {
   evento.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(ESTATICOS)).then(() => self.skipWaiting())
+    caches.open(CACHE).then((cache) => cache.addAll(ESTATICOS))
   );
+});
+
+// Recebe o pedido do main.jsx para assumir controlo imediatamente, em vez de
+// esperar que todas as instâncias abertas da app fechem sozinhas — em quem
+// tem a plataforma instalada no telemóvel, isso podia nunca acontecer, e uma
+// correção já publicada ficava sem chegar ao aparelho da pessoa.
+self.addEventListener("message", (evento) => {
+  if (evento.data?.tipo === "ATIVAR_AGORA") self.skipWaiting();
 });
 
 self.addEventListener("activate", (evento) => {
