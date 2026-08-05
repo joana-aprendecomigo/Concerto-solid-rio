@@ -63,11 +63,29 @@ export async function definirCodigo(nome, codigo) {
 
   // Associa a conta ao perfil. A função recusa se o perfil já tiver conta, o
   // que impede alguém de se apropriar do perfil de outra pessoa.
-  const { error: erroAssociar } = await supabase.rpc("associar_conta", {
-    p_nome: nome,
-    p_user_id: data.user.id,
-  });
-  if (erroAssociar) throw erroAssociar;
+  //
+  // Entre o signUp e esta chamada há uma janela em que a conta existe no
+  // Supabase Auth mas ainda não está ligada a nenhum perfil. Se a chamada
+  // falhar aqui (rede, RLS momentânea), a conta ficava órfã: a pessoa
+  // conseguia entrar, mas a plataforma nunca saberia a quem essa conta
+  // pertence — via tudo a zero, sem explicação, só a ela.
+  //
+  // Tenta uma segunda vez antes de desistir, e se mesmo assim falhar avisa
+  // com uma mensagem que diz exatamente o que aconteceu e o que fazer, em
+  // vez de deixar a conta num estado a meio sem ninguém dar por isso.
+  let erroAssociar = null;
+  for (let tentativa = 0; tentativa < 2; tentativa++) {
+    const r = await supabase.rpc("associar_conta", { p_nome: nome, p_user_id: data.user.id });
+    erroAssociar = r.error;
+    if (!erroAssociar) break;
+  }
+  if (erroAssociar) {
+    throw new Error(
+      "A conta foi criada mas não foi possível associá-la ao teu perfil " +
+        `(${erroAssociar.message}). Tenta entrar novamente com o mesmo código — ` +
+        "se o problema persistir, pede a quem gere a plataforma para verificar."
+    );
+  }
 
   return data.user;
 }
@@ -116,16 +134,44 @@ export async function mudarCodigo(nome, codigoAtual, codigoNovo) {
   if (error) throw error;
 }
 
-/** Nome do membro com sessão iniciada, ou null. */
+/**
+ * Nome do membro com sessão iniciada.
+ *
+ * Distingue três situações que antes eram todas tratadas como "sem sessão",
+ * o que fazia a plataforma mostrar zero em tudo sem explicação: bastava a
+ * leitura de `profiles` falhar (rede, RLS) para o utilizador ficar sem nome
+ * apesar de a sessão do Supabase Auth continuar válida.
+ *
+ *   { logado: false }                         — sem sessão, é suposto ver o ecrã de entrada
+ *   { logado: true, nome, erro: null }         — tudo bem
+ *   { logado: true, nome: null, erro: '...' }  — sessão válida, mas não foi possível
+ *                                                 confirmar a que perfil corresponde
+ */
 export async function membroComSessao() {
-  const { data } = await supabase.auth.getSession();
-  if (!data?.session) return null;
-  const { data: perfil } = await supabase
+  const { data, error: erroSessao } = await supabase.auth.getSession();
+  if (erroSessao) throw erroSessao;
+  if (!data?.session) return { logado: false, nome: null, erro: null };
+
+  const { data: perfil, error: erroPerfil } = await supabase
     .from("profiles")
     .select("nome")
     .eq("user_id", data.session.user.id)
     .maybeSingle();
-  return perfil?.nome || null;
+
+  if (erroPerfil) {
+    return { logado: true, nome: null, erro: erroPerfil.message };
+  }
+  if (!perfil) {
+    // Sessão válida (o login foi aceite), mas nenhum perfil aponta para esta
+    // conta — normalmente porque `associar_conta` falhou depois do signUp
+    // (ver definirCodigo). É diferente de "sem sessão": aqui há alguém
+    // autenticado que a plataforma não consegue reconhecer.
+    return {
+      logado: true, nome: null,
+      erro: "A tua conta não está associada a nenhum membro da equipa. Contacta quem gere a plataforma.",
+    };
+  }
+  return { logado: true, nome: perfil.nome, erro: null };
 }
 
 /**

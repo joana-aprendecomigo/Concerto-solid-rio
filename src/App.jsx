@@ -740,6 +740,10 @@ const KEY_DOCUMENTS = "ymec_documents_v1";
 
 export default function App() {
   const [booted, setBooted] = useState(false);
+  // Motivo pelo qual o carregamento inicial falhou. Distinto de "a carregar"
+  // — sem isto, uma falha de rede ficava indistinguível de uma base de dados
+  // vazia, e a plataforma arrancava com tudo a zero sem avisar ninguém.
+  const [erroCarregamento, setErroCarregamento] = useState(null);
   // Só se anuncia a espera quando ela é percetível; abaixo disso, a mensagem
   // apareceria e desapareceria num piscar de olhos, o que incomoda mais do que
   // ajuda.
@@ -749,6 +753,11 @@ export default function App() {
   // passar por outra pessoa.
   const [user, setUser] = useState(null);
   const [sessaoVerificada, setSessaoVerificada] = useState(false);
+  // Guarda o motivo quando há sessão válida mas não foi possível confirmar
+  // quem é a pessoa (ver membroComSessao) — sem isto, esse caso era tratado
+  // como "ninguém com sessão" e a pessoa via o ecrã de entrada outra vez, em
+  // vez de perceber que algo tinha corrido mal.
+  const [erroSessao, setErroSessao] = useState(null);
   // Cargo e departamento de quem tem sessão, para preencher a assinatura dos
   // e-mails sem obrigar a escrevê-los à mão em cada envio.
   const [remetente, setRemetente] = useState(null);
@@ -838,16 +847,37 @@ export default function App() {
 
   // Recupera a sessão iniciada (sobrevive a recarregar a página e às
   // remontagens provocadas pela sincronização).
-  useEffect(() => {
-    (async () => {
-      try {
-        setUser(await membroComSessao());
-      } catch {
+  //
+  // membroComSessao distingue "sem sessão" (mostra o ecrã de entrada, normal)
+  // de "sessão válida mas sem perfil associado" (mostra um erro explícito).
+  // Antes, os dois casos resultavam no mesmo `user = null`, e a segunda
+  // situação — alguém autenticado que a plataforma não reconhece — aparecia
+  // como se fosse a primeira: sem explicação, com tudo a zero.
+  const verificarSessao = async () => {
+    try {
+      const r = await membroComSessao();
+      if (r.erro) {
         setUser(null);
-      } finally {
-        setSessaoVerificada(true);
+        setErroSessao(r.erro);
+      } else {
+        setUser(r.nome);
+        setErroSessao(null);
       }
-    })();
+    } catch (e) {
+      // Falha de rede/servidor ao verificar a sessão — diferente de "não há
+      // sessão". Mostrar o ecrã de entrada aqui esconderia um problema real
+      // atrás de um formulário que parece normal.
+      setUser(null);
+      setErroSessao(
+        "Não foi possível confirmar a sessão (" + (e?.message || "erro de ligação") + ")."
+      );
+    } finally {
+      setSessaoVerificada(true);
+    }
+  };
+
+  useEffect(() => {
+    verificarSessao();
   }, []);
 
   // Informa a camada de dados de que nada pode ser gravado. Fica aqui, e não
@@ -896,62 +926,83 @@ export default function App() {
     try { window.sessionStorage.setItem("ymec_module", module); } catch {}
   }, [module]);
 
-  useEffect(() => {
-    (async () => {
-      // Lê tudo em paralelo. Em série, com a base de dados remota, as sete
-      // leituras somavam-se e o ecrã "A preparar a plataforma…" ficava vários
-      // segundos à vista.
-      const ler = async (chave, seFalhar = []) => {
-        try {
-          const r = await window.storage.get(chave, true);
-          return r && r.value ? JSON.parse(r.value) : seFalhar;
-        } catch {
-          return seFalhar;
-        }
-      };
+  // Marca de água para distinguir "a base de dados leu e está vazia" (objeto
+  // vazio devolvido com sucesso) de "não consegui ler" (exceção). Sem esta
+  // distinção, uma falha de rede a meio do arranque tinha exatamente o mesmo
+  // efeito visual do que uma base de dados genuinamente vazia: todos os
+  // indicadores a zero, sem nenhuma indicação de que algo tinha corrido mal.
+  const carregarDados = async () => {
+    const ler = async (chave) => {
+      const r = await window.storage.get(chave, true);
+      return r && r.value ? JSON.parse(r.value) : [];
+    };
 
-      const [
-        artistasLidos, espacosLidos, parceirosLidos,
-        templatesLidos, membrosLidos, documentosLidos, tarefasLidas,
-      ] = await Promise.all([
-        ler(KEY_ARTISTS), ler(KEY_SPACES), ler(KEY_PARTNERS),
-        ler(KEY_TEMPLATES), ler(KEY_MEMBERS), ler(KEY_DOCUMENTS), ler(KEY_TASKS),
-      ]);
+    const resultados = await Promise.allSettled([
+      ler(KEY_ARTISTS), ler(KEY_SPACES), ler(KEY_PARTNERS),
+      ler(KEY_TEMPLATES), ler(KEY_MEMBERS), ler(KEY_DOCUMENTS), ler(KEY_TASKS),
+    ]);
 
-      // Os dados iniciais (artistas, espaços, templates e tarefas) já vivem na
-      // base de dados, inseridos pelo seed SQL. Só se recorre às listas em
-      // código quando a leitura vem vazia — caso contrário, cada arranque
-      // reescrevia centenas de registos e podia sobrepor o trabalho de quem
-      // estivesse a editar ao mesmo tempo.
-      const artistas = artistasLidos.length ? artistasLidos : mergeByNome(SEED, NOVOS_ARTISTAS);
-      const espacos = espacosLidos.length ? espacosLidos : mergeByNome([], SEED_ESPACOS);
-      const templatesFinal = templatesLidos.length ? templatesLidos : mergeByNome([], SEED_TEMPLATES);
-      const tarefas = tarefasLidas.length ? tarefasLidas : mergeTasksByTituloResp([], SEED_TASKS);
+    const falhas = resultados.filter((r) => r.status === "rejected");
+    if (falhas.length) {
+      // Nem uma leitura falhada é tratada como "lista vazia": arrancar a
+      // plataforma nesse estado e, pior, escrever os dados de semente por
+      // cima de uma leitura que apenas falhou, seria destrutivo. Falha tudo
+      // junto, com o motivo da primeira falha para o ecrã de erro.
+      throw new Error(falhas[0].reason?.message || "Falha a carregar os dados");
+    }
 
-      setArtists(artistas);
-      setSpaces(espacos);
-      setPartners(parceirosLidos);
-      setTemplates(templatesFinal);
-      setMembers(membrosLidos);
-      setDocuments(documentosLidos);
-      setTasks(tarefas);
-      tasksRef.current = tarefas;
+    const [
+      artistasLidos, espacosLidos, parceirosLidos,
+      templatesLidos, membrosLidos, documentosLidos, tarefasLidas,
+    ] = resultados.map((r) => r.value);
 
-      // Mostra já a plataforma: a sincronização das tarefas automáticas não
-      // precisa de bloquear a entrada.
-      setBooted(true);
+    // Os dados iniciais (artistas, espaços, templates e tarefas) já vivem na
+    // base de dados, inseridos pelo seed SQL. Só se recorre às listas em
+    // código quando a leitura teve sucesso e veio genuinamente vazia —
+    // nunca quando a leitura falhou, porque nesse caso já se lançou acima.
+    const artistas = artistasLidos.length ? artistasLidos : mergeByNome(SEED, NOVOS_ARTISTAS);
+    const espacos = espacosLidos.length ? espacosLidos : mergeByNome([], SEED_ESPACOS);
+    const templatesFinal = templatesLidos.length ? templatesLidos : mergeByNome([], SEED_TEMPLATES);
+    const tarefas = tarefasLidas.length ? tarefasLidas : mergeTasksByTituloResp([], SEED_TASKS);
 
-      // Se a base de dados estava vazia, guarda os dados iniciais.
+    setArtists(artistas);
+    setSpaces(espacos);
+    setPartners(parceirosLidos);
+    setTemplates(templatesFinal);
+    setMembers(membrosLidos);
+    setDocuments(documentosLidos);
+    setTasks(tarefas);
+    tasksRef.current = tarefas;
+
+    setBooted(true);
+    setErroCarregamento(null);
+
+    // Se a base de dados estava vazia, guarda os dados iniciais. Falhas aqui
+    // não impedem a pessoa de trabalhar (os dados já estão no ecrã) — ficam
+    // só registadas, para não trocar "tudo a zero" por "erro a meio do uso".
+    try {
       if (!artistasLidos.length) await window.storage.set(KEY_ARTISTS, JSON.stringify(artistas), true);
       if (!espacosLidos.length) await window.storage.set(KEY_SPACES, JSON.stringify(espacos), true);
       if (!templatesLidos.length) await window.storage.set(KEY_TEMPLATES, JSON.stringify(templatesFinal), true);
       if (!tarefasLidas.length) await window.storage.set(KEY_TASKS, JSON.stringify(tarefas), true);
+    } catch (e) {
+      console.error("[Concerto] Falha ao gravar os dados de semente", e);
+    }
 
-      // sincroniza as tarefas automáticas com os responsáveis já definidos nos contactos
-      await syncContactTasks("artista", artistas);
-      await syncContactTasks("espaco", espacos);
-      await syncContactTasks("parceiro", parceirosLidos);
-    })();
+    // sincroniza as tarefas automáticas com os responsáveis já definidos nos contactos
+    await syncContactTasks("artista", artistas);
+    await syncContactTasks("espaco", espacos);
+    await syncContactTasks("parceiro", parceirosLidos);
+  };
+
+  useEffect(() => {
+    carregarDados().catch((e) => {
+      console.error("[Concerto] Falha ao carregar os dados", e);
+      setErroCarregamento(e?.message || "Não foi possível carregar os dados.");
+      // `booted` continua false: o ecrã de erro (mais abaixo) substitui o
+      // ecrã "A preparar a plataforma…" em vez de deixar a pessoa entrar
+      // numa plataforma vazia.
+    });
   }, []);
 
   // corre a verificação automática do follow-up assim que a plataforma arranca, e depois periodicamente
@@ -1384,6 +1435,34 @@ export default function App() {
   };
 
   if (!booted) {
+    // Falha real a carregar os dados: nunca se mostra a plataforma com tudo
+    // a zero como se fosse o estado normal — mostra-se o motivo e a forma de
+    // tentar outra vez, no mesmo sítio onde a pessoa esperava ver a lista.
+    if (erroCarregamento) {
+      return (
+        <div style={{ position: "relative", background: C.gradient, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif", padding: 24 }}>
+          <style>{FONTS}</style>
+          <div style={{ background: "rgba(15,23,43,0.55)", backdropFilter: "blur(10px)", borderRadius: 20, padding: 32, border: "1px solid rgba(255,255,255,0.12)", maxWidth: 440, textAlign: "center" }}>
+            <div style={{ width: 44, height: 44, borderRadius: 12, background: "rgba(230,23,140,0.18)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+              <AlertTriangle size={20} color="#FF8FCB" />
+            </div>
+            <div style={{ color: "#fff", fontWeight: 700, fontSize: 17, marginBottom: 8, fontFamily: "Space Grotesk, sans-serif" }}>
+              Não foi possível carregar os dados
+            </div>
+            <div style={{ color: "rgba(255,255,255,0.65)", fontSize: 13.5, lineHeight: 1.5, marginBottom: 20 }}>
+              {erroCarregamento}. Os teus dados estão bem — isto é só uma falha a ir buscá-los agora.
+            </div>
+            <button
+              type="button"
+              onClick={() => { setErroCarregamento(null); carregarDados().catch((e) => setErroCarregamento(e?.message || "Não foi possível carregar os dados.")); }}
+              style={{ ...btnPrimary, padding: "10px 20px" }}
+            >
+              Tentar novamente
+            </button>
+          </div>
+        </div>
+      );
+    }
     // O ecrã de espera só aparece se o carregamento demorar mais de meio
     // segundo (ver `mostrarEspera`). Num carregamento rápido mostra-se apenas o
     // fundo do ecrã de entrada, evitando um lampejo de texto entre dois ecrãs.
@@ -1402,6 +1481,47 @@ export default function App() {
     return (
       <div style={{ background: C.gradient, minHeight: "100vh" }}>
         <style>{FONTS}</style>
+      </div>
+    );
+  }
+
+  // Sessão do Supabase válida, mas não foi possível confirmar quem é a
+  // pessoa (perfil não associado) ou a verificação falhou por erro de rede.
+  // Isto é diferente de "ninguém tem sessão": aqui há alguém autenticado que
+  // a plataforma não está a conseguir reconhecer, e mostrar o ecrã de
+  // entrada normal esconderia esse problema — a pessoa via tudo a zero sem
+  // perceber porquê.
+  if (erroSessao && !visitante) {
+    return (
+      <div style={{ position: "relative", background: C.gradient, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif", padding: 24 }}>
+        <style>{FONTS}</style>
+        <div style={{ background: "rgba(15,23,43,0.55)", backdropFilter: "blur(10px)", borderRadius: 20, padding: 32, border: "1px solid rgba(255,255,255,0.12)", maxWidth: 440, textAlign: "center" }}>
+          <div style={{ width: 44, height: 44, borderRadius: 12, background: "rgba(230,23,140,0.18)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+            <AlertTriangle size={20} color="#FF8FCB" />
+          </div>
+          <div style={{ color: "#fff", fontWeight: 700, fontSize: 17, marginBottom: 8, fontFamily: "Space Grotesk, sans-serif" }}>
+            Não foi possível carregar a tua sessão
+          </div>
+          <div style={{ color: "rgba(255,255,255,0.65)", fontSize: 13.5, lineHeight: 1.5, marginBottom: 20 }}>
+            {erroSessao}
+          </div>
+          <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+            <button
+              type="button"
+              onClick={() => { setSessaoVerificada(false); setErroSessao(null); verificarSessao(); }}
+              style={{ ...btnPrimary, padding: "10px 18px" }}
+            >
+              Tentar novamente
+            </button>
+            <button
+              type="button"
+              onClick={async () => { await terminarSessao(); setErroSessao(null); }}
+              style={{ ...btnGhost, padding: "10px 18px", background: "transparent", borderColor: "rgba(255,255,255,0.25)", color: "rgba(255,255,255,0.85)" }}
+            >
+              Sair e voltar a entrar
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
