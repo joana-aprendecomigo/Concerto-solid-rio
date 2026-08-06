@@ -16,7 +16,7 @@ import {
   ListChecks, Square, CheckSquare, RotateCcw, Download,
   LayoutDashboard, TrendingUp, Trophy, Flame, Target, Award,
   BarChart3, PieChart, Medal, Zap, CalendarDays, AlertOctagon, Star,
-  FileText, ExternalLink,
+  FileText, ExternalLink, GripVertical, Tag, Briefcase, Heart, Package,
 } from "lucide-react";
 
 /* ---------- logótipo real da yme (embutido como data URI) ---------- */
@@ -239,15 +239,37 @@ const CATEGORIAS_PARCEIROS = [
 ];
 const categoriaInfo = (v) => CATEGORIAS_PARCEIROS.find((c) => c.v === v) || CATEGORIAS_PARCEIROS[0];
 
-const CATEGORIAS_TEMPLATES = [
-  { v: "Contacto IPO", color: C.amber, bg: C.amberBg, icon: Landmark },
-  { v: "Artistas", color: C.accent, bg: C.accentSoft, icon: Music2 },
-  { v: "Espaços", color: C.teal, bg: C.tealBg, icon: MapPin },
-  { v: "Tipografias", color: C.gray, bg: C.grayBg, icon: Printer },
-  { v: "Parceiros", color: C.green, bg: C.greenBg, icon: Handshake },
-  { v: "Parceiros Divulgação (RSC)", color: C.red, bg: C.redBg, icon: Megaphone },
+// Ícones que a equipa pode escolher para uma secção de templates — mapa de
+// nome (guardado como texto na base de dados, ver migration 0013) para o
+// componente lucide-react já importado no topo do ficheiro.
+const ICONES_CATEGORIA = {
+  Landmark, Music2, MapPin, Printer, Handshake, Megaphone,
+  Mail, Tag, Briefcase, Heart, Package, Star, Building2, Gift, Send, Users,
+};
+const ICONES_CATEGORIA_LISTA = Object.keys(ICONES_CATEGORIA);
+
+// Cores que a equipa pode escolher para uma secção — o mesmo hex serve de
+// "cor" (texto/ícone) e, com transparência, de fundo do cartão.
+const CORES_CATEGORIA = [
+  "#B8791A", "#E6178C", "#256B79", "#8A93A1", "#2C7A54", "#B0394A",
+  "#5B6478", "#7C3AED", "#0EA5E9", "#DB2777",
 ];
-const categoriaTemplateInfo = (v) => CATEGORIAS_TEMPLATES.find((c) => c.v === v) || CATEGORIAS_TEMPLATES[0];
+
+const corSuave = (hex, alpha = "22") => `${hex || "#5B6478"}${alpha}`;
+
+// Deriva o visual (ícone + cores) de uma categoria vinda da base de dados;
+// devolve um valor plausível mesmo que a categoria já não exista (secção
+// removida entretanto por outra pessoa).
+const categoriaTemplateInfo = (nome, categorias) => {
+  const cat = (categorias || []).find((c) => c.nome === nome);
+  const cor = cat?.cor || "#5B6478";
+  return {
+    v: nome,
+    color: cor,
+    bg: corSuave(cor),
+    icon: ICONES_CATEGORIA[cat?.icone] || Mail,
+  };
+};
 
 // variáveis dinâmicas suportadas nos templates de email, com um valor de exemplo para a pré-visualização
 const VARIAVEIS_TEMPLATE = [
@@ -464,7 +486,7 @@ const blankTemplate = () => ({
 const DEFAULT_FOLLOWUP_DIAS = 10;
 
 const blankTask = () => ({
-  id: uid(), titulo: "", responsavel: "", dataLimite: "", estado: "Por fazer", prioridade: "Média",
+  id: uid(), titulo: "", responsaveis: [], dataLimite: "", estado: "Por fazer", prioridade: "Média",
   criadoPor: "", atualizadoPor: "", criadoEm: "", concluidaEm: "",
 });
 
@@ -527,33 +549,22 @@ const exportarListaExcel = (nomeFicheiro, nomeFolha, linhas) => {
 };
 
 /* ---------- seed de tarefas (definidas em reunião de equipa) ---------- */
-// cada linha combinada título+responsável só é adicionada uma vez (não duplica em recarregamentos)
+// cada título só é adicionado uma vez (não duplica em recarregamentos); tarefas partilhadas por
+// várias pessoas ficam com todas em "responsaveis", em vez de uma tarefa repetida por pessoa
 const SEED_TASKS = [
-  // renovar a lista de contactos de artistas, preencher no Excel e voltar a contactar
-  { titulo: "Renovar a lista de contactos de artistas e preencher tudo corretamente no Excel com base nessa lista, e voltar a contactá-los", responsavel: "Jonathan" },
-  { titulo: "Renovar a lista de contactos de artistas e preencher tudo corretamente no Excel com base nessa lista, e voltar a contactá-los", responsavel: "Martim" },
-  { titulo: "Renovar a lista de contactos de artistas e preencher tudo corretamente no Excel com base nessa lista, e voltar a contactá-los", responsavel: "Sara" },
-  { titulo: "Renovar a lista de contactos de artistas e preencher tudo corretamente no Excel com base nessa lista, e voltar a contactá-los", responsavel: "Lara Leão" },
-  // renovar a lista de contactos dos espaços e voltar a contactar
-  { titulo: "Renovar a lista de contactos dos espaços e voltar a contactá-los", responsavel: "Lara Costa" },
-  { titulo: "Renovar a lista de contactos dos espaços e voltar a contactá-los", responsavel: "Andreia" },
-  // responder ao Vita
-  { titulo: "Responder ao Vita", responsavel: "Maria Rita" },
-  // perceber quais os parceiros a contactar nesta fase + definir proposta de valor
-  { titulo: "Perceber quais os parceiros que é importante contactar nesta fase", responsavel: "Maria Rita" },
-  { titulo: "Perceber quais os parceiros que é importante contactar nesta fase", responsavel: "Tiago" },
-  { titulo: "Perceber quais os parceiros que é importante contactar nesta fase", responsavel: "Ana" },
-  { titulo: "Definir uma proposta de valor para esses parceiros", responsavel: "Maria Rita" },
-  { titulo: "Definir uma proposta de valor para esses parceiros", responsavel: "Tiago" },
-  { titulo: "Definir uma proposta de valor para esses parceiros", responsavel: "Ana" },
+  { titulo: "Renovar a lista de contactos de artistas e preencher tudo corretamente no Excel com base nessa lista, e voltar a contactá-los", responsaveis: ["Jonathan", "Martim", "Sara", "Lara Leão"] },
+  { titulo: "Renovar a lista de contactos dos espaços e voltar a contactá-los", responsaveis: ["Lara Costa", "Andreia"] },
+  { titulo: "Responder ao Vita", responsaveis: ["Maria Rita"] },
+  { titulo: "Perceber quais os parceiros que é importante contactar nesta fase", responsaveis: ["Maria Rita", "Tiago", "Ana"] },
+  { titulo: "Definir uma proposta de valor para esses parceiros", responsaveis: ["Maria Rita", "Tiago", "Ana"] },
   // posteriormente — comunicação marca reunião para discutir e apresentar à equipa
-  { titulo: "Ter mais ideias para comunicar o concerto e ajudar na divulgação (ex.: ideia dos embaixadores) — combinar reunião com a equipa para apresentar propostas", responsavel: "Comunicação" },
+  { titulo: "Ter mais ideias para comunicar o concerto e ajudar na divulgação (ex.: ideia dos embaixadores) — combinar reunião com a equipa para apresentar propostas", responsaveis: ["Comunicação"] },
 ].map((t) => ({ ...blankTask(), ...t }));
 
-// junta a lista de tarefas guardada com as tarefas-seed, comparando por título + responsável
-// (permite a mesma tarefa aparecer para várias pessoas sem nunca duplicar ao recarregar)
+// junta a lista de tarefas guardada com as tarefas-seed, comparando só por título
+// (uma tarefa pode ter vários responsáveis; não duplica ao recarregar)
 const normTitulo = (s) => (s || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-const chaveTarefa = (t) => `${normTitulo(t.titulo)}|${normTitulo(t.responsavel)}`;
+const chaveTarefa = (t) => normTitulo(t.titulo);
 const mergeTasksByTituloResp = (base, extras) => {
   const existentes = new Set(base.map(chaveTarefa));
   const aAdicionar = extras.filter((t) => t.titulo && !existentes.has(chaveTarefa(t)));
@@ -808,7 +819,7 @@ export default function App() {
       if (c.tarefaAutoDispensada) return;
       const existente = existentesPorId[c.id];
       if (existente) {
-        auto.push({ ...existente, titulo: `${verbo}: ${c.nome}`, responsavel: c.responsavel, origem: { tipo, contactId: c.id } });
+        auto.push({ ...existente, titulo: `${verbo}: ${c.nome}`, responsaveis: [c.responsavel], origem: { tipo, contactId: c.id } });
       } else {
         auto.push({
           // Antes o id era derivado do contacto (`auto-tipo-id`) para evitar
@@ -817,7 +828,7 @@ export default function App() {
           // nunca chegava a ser gravada.
           id: uid(),
           titulo: `${verbo}: ${c.nome}`,
-          responsavel: c.responsavel,
+          responsaveis: [c.responsavel],
           dataLimite: c.dataProximoContacto || "",
           estado: "Por fazer",
           prioridade: "Média",
@@ -1186,7 +1197,7 @@ export default function App() {
     const novaTarefa = {
       id: uid(),
       titulo: `Follow-up (Fase ${faseSeguinte}) — ${verbo}: ${contact.nome}`,
-      responsavel: contact.responsavel,
+      responsaveis: contact.responsavel ? [contact.responsavel] : [],
       dataLimite: new Date().toISOString().slice(0, 10),
       estado: "Por fazer",
       prioridade: "Média",
@@ -3842,6 +3853,13 @@ function ComunicacaoTab({ tipo, contact, templates, user, onSend, showToast, rem
   const tipoInfo = TIPOS_CONTACTO[tipo] || {};
   const categoriaDefault = tipoInfo.categoriaTemplate || "Todas";
   const list = templates || [];
+  // Categorias com pelo menos um template — as secções são geridas noutro
+  // sítio (módulo Templates); aqui só interessa filtrar entre as que já têm
+  // conteúdo para mostrar.
+  const categoriasComTemplates = useMemo(
+    () => Array.from(new Set(list.map((t) => t.categoria).filter(Boolean))),
+    [list]
+  );
 
   const [filterCategoria, setFilterCategoria] = useState(categoriaDefault);
   const templatesFiltrados = useMemo(
@@ -3934,7 +3952,7 @@ function ComunicacaoTab({ tipo, contact, templates, user, onSend, showToast, rem
         <Field label="Categoria do template">
           <select style={selectStyle} value={filterCategoria} onChange={(e) => setFilterCategoria(e.target.value)}>
             <option value="Todas">Todas as categorias</option>
-            {CATEGORIAS_TEMPLATES.map((c) => <option key={c.v} value={c.v}>{c.v}</option>)}
+            {categoriasComTemplates.map((nome) => <option key={nome} value={nome}>{nome}</option>)}
           </select>
         </Field>
         <Field label="Template">
@@ -5212,14 +5230,26 @@ function ArtistModal({ data, members, existingList, onClose, onSave, isNew, temp
 }
 
 /* ---------- templates de email module ---------- */
-function TemplatesModule({ templates, persistTemplates, user, showToast, soLeitura }) {
+function TemplatesModule({ templates, persistTemplates, categorias, persistCategorias, user, showToast, soLeitura }) {
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState(null); // 'add' | 'edit' | 'delete'
   const [editing, setEditing] = useState(null);
   const [toDelete, setToDelete] = useState(null);
   const [toPreview, setToPreview] = useState(null);
 
+  // Gestão de secções: criar, editar, remover, arrastar para ordenar. Estado
+  // à parte do dos templates, porque é um modal e um fluxo diferentes.
+  const [modalCategoria, setModalCategoria] = useState(null); // 'add' | 'edit'
+  const [editandoCategoria, setEditandoCategoria] = useState(null);
+  const [categoriaAEliminar, setCategoriaAEliminar] = useState(null);
+  const [arrastandoId, setArrastandoId] = useState(null);
+  const [sobreId, setSobreId] = useState(null);
+
   const list = templates || [];
+  // Enquanto as categorias carregam (ou se a migration 0013 ainda não correu
+  // nesta base de dados), não há secções onde encaixar nada — antes de as
+  // ignorar, mostra-se essa situação em vez de simplesmente não haver quadro.
+  const categoriasLista = categorias || [];
 
   const searchQ = search.trim().toLowerCase();
   const matches = (t) => !searchQ || `${t.nome} ${t.assunto}`.toLowerCase().includes(searchQ);
@@ -5227,7 +5257,7 @@ function TemplatesModule({ templates, persistTemplates, user, showToast, soLeitu
   // agrupa por categoria e ordena cada grupo pela fase (o "fluxo" de contacto), com o nome como desempate
   const porCategoria = useMemo(() => {
     const map = {};
-    CATEGORIAS_TEMPLATES.forEach((c) => { map[c.v] = []; });
+    categoriasLista.forEach((c) => { map[c.nome] = []; });
     list.forEach((t) => {
       if (!map[t.categoria]) map[t.categoria] = [];
       map[t.categoria].push(t);
@@ -5236,12 +5266,69 @@ function TemplatesModule({ templates, persistTemplates, user, showToast, soLeitu
       map[k] = map[k].slice().sort((a, b) => (a.fase || 0) - (b.fase || 0) || a.nome.localeCompare(b.nome));
     });
     return map;
-  }, [list]);
+  }, [list, categoriasLista]);
 
   const proximaFase = (categoria) => {
     const existentes = porCategoria[categoria] || [];
     if (existentes.length === 0) return 1;
     return Math.max(...existentes.map((t) => t.fase || 0)) + 1;
+  };
+
+  const saveCategoria = async (dados) => {
+    const agora = new Date().toISOString();
+    const existente = categoriasLista.find((c) => c.id === dados.id);
+    const withMeta = {
+      ...dados,
+      atualizadoPor: user, atualizadoEm: agora,
+      criadoPor: existente?.criadoPor || user, criadoEm: existente?.criadoEm || agora,
+    };
+    let next;
+    if (modalCategoria === "add") {
+      // Entra no fim: a próxima secção que a equipa cria fica à direita, sem
+      // reordenar as existentes por baixo dela.
+      const ordem = categoriasLista.length
+        ? Math.max(...categoriasLista.map((c) => c.ordem ?? 0)) + 1
+        : 0;
+      next = [...categoriasLista, { ...withMeta, ordem }];
+    } else {
+      next = categoriasLista.map((c) => (c.id === withMeta.id ? { ...c, ...withMeta } : c));
+    }
+    await persistCategorias(next);
+    setModalCategoria(null);
+    setEditandoCategoria(null);
+    showToast(modalCategoria === "add" ? `Secção "${withMeta.nome}" criada.` : `Secção "${withMeta.nome}" atualizada.`);
+  };
+
+  const confirmDeleteCategoria = async () => {
+    const alvo = categoriaAEliminar;
+    const next = categoriasLista.filter((c) => c.id !== alvo.id);
+    await persistCategorias(next);
+    // Os templates dessa secção ficam órfãos na base de dados (a chave
+    // estrangeira apaga-os em cascata — ver migration 0013); a lista local
+    // acompanha de imediato, sem esperar pela próxima leitura.
+    const templatesRestantes = list.filter((t) => t.categoria !== alvo.nome);
+    if (templatesRestantes.length !== list.length) await persistTemplates(templatesRestantes);
+    showToast(`Secção "${alvo.nome}" removida.`);
+    setCategoriaAEliminar(null);
+  };
+
+  // Arrastar e largar para reordenar as secções. Ao soltar sobre outra
+  // secção, troca as duas de posição — simples e previsível com poucas
+  // colunas, sem precisar de calcular posições intermédias.
+  const largarCategoria = async (idAlvo) => {
+    const idOrigem = arrastandoId;
+    setArrastandoId(null);
+    setSobreId(null);
+    if (!idOrigem || idOrigem === idAlvo) return;
+    const origem = categoriasLista.find((c) => c.id === idOrigem);
+    const alvo = categoriasLista.find((c) => c.id === idAlvo);
+    if (!origem || !alvo) return;
+    const next = categoriasLista.map((c) => {
+      if (c.id === idOrigem) return { ...c, ordem: alvo.ordem };
+      if (c.id === idAlvo) return { ...c, ordem: origem.ordem };
+      return c;
+    });
+    await persistCategorias(next);
   };
 
   const saveTemplate = async (data) => {
@@ -5291,16 +5378,34 @@ function TemplatesModule({ templates, persistTemplates, user, showToast, soLeitu
       </div>
 
       <div style={{ display: "flex", gap: 16, overflowX: "auto", paddingBottom: 10 }}>
-        {CATEGORIAS_TEMPLATES.map((cat) => {
+        {categoriasLista.slice().sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0)).map((catRow) => {
+          const cat = categoriaTemplateInfo(catRow.nome, categoriasLista);
           const CIcon = cat.icon;
           const totalCat = (porCategoria[cat.v] || []).length;
           const templatesCat = (porCategoria[cat.v] || []).filter(matches);
+          const arrastandoSobreEsta = sobreId === catRow.id && arrastandoId && arrastandoId !== catRow.id;
           return (
-            <div key={cat.v} style={{ width: 280, flexShrink: 0, display: "flex", flexDirection: "column" }}>
+            <div
+              key={cat.v}
+              draggable={!soLeitura}
+              onDragStart={() => setArrastandoId(catRow.id)}
+              onDragOver={(e) => { e.preventDefault(); if (sobreId !== catRow.id) setSobreId(catRow.id); }}
+              onDragLeave={() => setSobreId((s) => (s === catRow.id ? null : s))}
+              onDrop={() => largarCategoria(catRow.id)}
+              onDragEnd={() => { setArrastandoId(null); setSobreId(null); }}
+              style={{ width: 280, flexShrink: 0, display: "flex", flexDirection: "column", opacity: arrastandoId === catRow.id ? 0.4 : 1, outline: arrastandoSobreEsta ? `2px dashed ${C.accent}` : "none", outlineOffset: 4, borderRadius: 12 }}
+            >
               <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: 10, background: cat.bg, marginBottom: 12 }}>
+                {!soLeitura && <GripVertical size={13} color={cat.color} style={{ cursor: "grab", flexShrink: 0, opacity: 0.6 }} />}
                 <CIcon size={15} color={cat.color} />
                 <div style={{ fontWeight: 700, fontSize: 12.5, color: cat.color, flex: 1, lineHeight: 1.25 }}>{cat.v}</div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: cat.color, background: "rgba(255,255,255,0.55)", padding: "2px 7px", borderRadius: 999, flexShrink: 0 }}>{totalCat}</div>
+                {!soLeitura && (
+                  <div style={{ display: "flex", gap: 1, flexShrink: 0 }}>
+                    <button onClick={() => { setEditandoCategoria(catRow); setModalCategoria("edit"); }} style={{ ...iconBtn, width: 22, height: 22, color: cat.color }} title="Editar secção"><Pencil size={12} /></button>
+                    <button onClick={() => setCategoriaAEliminar(catRow)} style={{ ...iconBtn, width: 22, height: 22, color: cat.color }} title="Eliminar secção"><Trash2 size={12} /></button>
+                  </div>
+                )}
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -5357,11 +5462,45 @@ function TemplatesModule({ templates, persistTemplates, user, showToast, soLeitu
             </div>
           );
         })}
+
+        {!soLeitura && (
+          <button
+            onClick={() => setModalCategoria("add")}
+            style={{ width: 200, flexShrink: 0, alignSelf: "flex-start", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "10px 12px", borderRadius: 10, border: `1px dashed ${C.line}`, background: "transparent", color: C.inkSoft, fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "Inter, sans-serif" }}
+          >
+            <Plus size={14} /> Nova secção
+          </button>
+        )}
       </div>
+
+      {modalCategoria && (
+        <CategoriaTemplateModal
+          data={editandoCategoria}
+          isNew={modalCategoria === "add"}
+          onClose={() => { setModalCategoria(null); setEditandoCategoria(null); }}
+          onSave={saveCategoria}
+        />
+      )}
+
+      {categoriaAEliminar && (
+        <ConfirmModal
+          title="Eliminar secção"
+          message={
+            (porCategoria[categoriaAEliminar.nome] || []).length > 0
+              ? `Tens a certeza que queres eliminar a secção "${categoriaAEliminar.nome}"? Os ${(porCategoria[categoriaAEliminar.nome] || []).length} template(s) lá dentro serão eliminados também. Esta ação não pode ser desfeita.`
+              : `Tens a certeza que queres eliminar a secção "${categoriaAEliminar.nome}"? Esta ação não pode ser desfeita.`
+          }
+          confirmLabel="Eliminar"
+          danger
+          onCancel={() => setCategoriaAEliminar(null)}
+          onConfirm={confirmDeleteCategoria}
+        />
+      )}
 
       {(modal === "add" || modal === "edit") && (
         <TemplateModal
           data={editing}
+          categorias={categoriasLista}
           onClose={() => { setModal(null); setEditing(null); }}
           onSave={saveTemplate}
           isNew={modal === "add"}
@@ -5380,14 +5519,76 @@ function TemplatesModule({ templates, persistTemplates, user, showToast, soLeitu
       )}
 
       {toPreview && (
-        <TemplatePreviewModal template={toPreview} onClose={() => setToPreview(null)} />
+        <TemplatePreviewModal template={toPreview} categorias={categoriasLista} onClose={() => setToPreview(null)} />
       )}
     </div>
   );
 }
 
+/* ---------- modal de criar/editar uma secção (nome, cor, ícone) ---------- */
+function CategoriaTemplateModal({ data, isNew, onClose, onSave }) {
+  const [form, setForm] = useState(data || { nome: "", cor: CORES_CATEGORIA[0], icone: "Mail" });
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const submit = (e) => {
+    e.preventDefault();
+    if (!form.nome.trim()) return;
+    onSave(form);
+  };
+
+  return (
+    <Overlay onClose={onClose}>
+      <div style={{ padding: "20px 24px", borderBottom: `1px solid ${C.line}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, fontSize: 17, color: C.ink }}>
+          {isNew ? "Nova Secção" : "Editar Secção"}
+        </div>
+        <button onClick={onClose} style={iconBtn}><X size={17} /></button>
+      </div>
+      <form onSubmit={submit}>
+        <div style={{ padding: "18px 24px" }}>
+          <Field label="Nome da secção *">
+            <input required autoFocus style={inputStyle} value={form.nome} onChange={(e) => set("nome", e.target.value)} placeholder="ex: Imprensa" />
+          </Field>
+
+          <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.inkSoft, margin: "14px 0 6px" }}>Cor</label>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {CORES_CATEGORIA.map((hex) => (
+              <button
+                type="button" key={hex} onClick={() => set("cor", hex)}
+                style={{ width: 26, height: 26, borderRadius: 999, background: hex, border: form.cor === hex ? `2px solid ${C.ink}` : "2px solid transparent", cursor: "pointer", padding: 0 }}
+                title={hex}
+              />
+            ))}
+          </div>
+
+          <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.inkSoft, margin: "14px 0 6px" }}>Ícone</label>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {ICONES_CATEGORIA_LISTA.map((nome) => {
+              const Icone = ICONES_CATEGORIA[nome];
+              const ativo = form.icone === nome;
+              return (
+                <button
+                  type="button" key={nome} onClick={() => set("icone", nome)}
+                  style={{ width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", background: ativo ? corSuave(form.cor) : "transparent", border: `1px solid ${ativo ? form.cor : C.line}`, color: ativo ? form.cor : C.inkSoft, cursor: "pointer" }}
+                  title={nome}
+                >
+                  <Icone size={15} />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div style={{ padding: "16px 24px", borderTop: `1px solid ${C.line}`, display: "flex", justifyContent: "flex-end", gap: 10 }}>
+          <button type="button" onClick={onClose} style={btnGhost}>Cancelar</button>
+          <button type="submit" style={btnPrimary}>{isNew ? "Criar secção" : "Guardar alterações"}</button>
+        </div>
+      </form>
+    </Overlay>
+  );
+}
+
 /* ---------- template add/edit modal (com editor de texto e variáveis dinâmicas) ---------- */
-function TemplateModal({ data, onClose, onSave, isNew }) {
+function TemplateModal({ data, categorias, onClose, onSave, isNew }) {
   const [form, setForm] = useState(data);
   const [tab, setTab] = useState("editar"); // 'editar' | 'preview'
   const bodyRef = useRef(null);
@@ -5467,7 +5668,7 @@ function TemplateModal({ data, onClose, onSave, isNew }) {
               </Field>
               <Field label="Categoria">
                 <select style={selectStyle} value={form.categoria} onChange={(e) => set("categoria", e.target.value)}>
-                  {CATEGORIAS_TEMPLATES.map((c) => <option key={c.v} value={c.v}>{c.v}</option>)}
+                  {(categorias || []).slice().sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0)).map((c) => <option key={c.id} value={c.nome}>{c.nome}</option>)}
                 </select>
               </Field>
               <Field label="Fase">
@@ -5592,9 +5793,9 @@ function TemplatePreviewContent({ assunto, corpo }) {
 }
 
 /* ---------- modal de pré-visualização standalone (acedido a partir da listagem) ---------- */
-function TemplatePreviewModal({ template, onClose }) {
+function TemplatePreviewModal({ template, categorias, onClose }) {
   const { assunto, corpo } = useMemo(() => aplicarVariaveis(template.assunto, template.corpo), [template]);
-  const info = categoriaTemplateInfo(template.categoria);
+  const info = categoriaTemplateInfo(template.categoria, categorias);
   const CIcon = info.icon;
   return (
     <Overlay onClose={onClose} wide>
@@ -5811,14 +6012,15 @@ function TarefasModule({
   const allTasks = tasks || [];
 
   const responsaveis = useMemo(() => {
-    const s = new Set([...(members || []), ...allTasks.map((t) => t.responsavel).filter(Boolean)]);
+    const s = new Set([...(members || []), ...allTasks.flatMap((t) => t.responsaveis || []).filter(Boolean)]);
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [allTasks, members]);
 
-  // filtros de responsável e prioridade são combináveis (aplicados em conjunto)
+  // filtros de responsável e prioridade são combináveis (aplicados em conjunto); uma tarefa com
+  // vários responsáveis aparece no filtro de qualquer um deles
   const list = useMemo(() => {
     return allTasks.filter((t) => {
-      if (filterResp !== "Todos" && t.responsavel !== filterResp) return false;
+      if (filterResp !== "Todos" && !(t.responsaveis || []).includes(filterResp)) return false;
       if (filterPrioridade !== "Todas" && (t.prioridade || "Média") !== filterPrioridade) return false;
       return true;
     });
@@ -5941,7 +6143,7 @@ function TarefasModule({
                       // apenas os líderes, ou o próprio responsável pela tarefa, podem mover o cartão
                       // entre colunas (concluir o seu próprio trabalho); os restantes tarefas ficam
                       // visíveis mas não são arrastáveis por quem não é dono nem líder
-                      const podeGerir = !soLeitura && (isLider(user) || t.responsavel === user);
+                      const podeGerir = !soLeitura && (isLider(user) || (t.responsaveis || []).includes(user));
                       return (
                         <div
                           key={t.id}
@@ -5989,12 +6191,20 @@ function TarefasModule({
                           )}
 
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 9, gap: 6 }}>
-                            {t.responsavel ? (
+                            {(t.responsaveis || []).length > 0 ? (
                               <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}>
-                                <div style={{ width: 18, height: 18, borderRadius: 999, background: C.accentSoft, color: C.accent, fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                                  {iniciais(t.responsavel)}
+                                <div style={{ display: "flex", flexShrink: 0 }}>
+                                  {t.responsaveis.map((r, i) => (
+                                    <div key={r} title={r} style={{
+                                      width: 18, height: 18, borderRadius: 999, background: C.accentSoft, color: C.accent,
+                                      fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center",
+                                      border: "1.5px solid #fff", marginLeft: i === 0 ? 0 : -6,
+                                    }}>
+                                      {iniciais(r)}
+                                    </div>
+                                  ))}
                                 </div>
-                                <span style={{ fontSize: 11.5, color: C.ink, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.responsavel}</span>
+                                <span style={{ fontSize: 11.5, color: C.ink, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.responsaveis.join(", ")}</span>
                               </div>
                             ) : (
                               <span style={{ fontSize: 11, color: C.gray, fontStyle: "italic" }}>por atribuir</span>
@@ -6394,8 +6604,15 @@ function AutoTaskModal({ task, templates, contact, onClose, onResposta, onSetTas
 }
 
 function TaskModal({ data, onClose, onSave, isNew, members }) {
-  const [form, setForm] = useState({ ...data });
+  const [form, setForm] = useState({ ...data, responsaveis: data.responsaveis || [] });
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const toggleResponsavel = (m) => {
+    setForm((f) => {
+      const atual = f.responsaveis || [];
+      const next = atual.includes(m) ? atual.filter((x) => x !== m) : [...atual, m];
+      return { ...f, responsaveis: next };
+    });
+  };
 
   const submit = (e) => {
     e.preventDefault();
@@ -6416,11 +6633,30 @@ function TaskModal({ data, onClose, onSave, isNew, members }) {
           <Field label="Título *" span2>
             <input required style={inputStyle} value={form.titulo} onChange={(e) => set("titulo", e.target.value)} />
           </Field>
-          <Field label="Responsável">
-            <select style={selectStyle} value={form.responsavel} onChange={(e) => set("responsavel", e.target.value)}>
-              <option value="">Por atribuir</option>
-              {(members?.length ? members : EQUIPA).map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
+          <Field label="Responsáveis" span2>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {(members?.length ? members : EQUIPA).map((m) => {
+                const ativo = (form.responsaveis || []).includes(m);
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => toggleResponsavel(m)}
+                    style={{
+                      padding: "6px 12px", borderRadius: 999, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+                      border: `1.5px solid ${ativo ? C.accent : C.line}`,
+                      background: ativo ? C.accentSoft : "#fff",
+                      color: ativo ? C.accent : C.inkSoft,
+                    }}
+                  >
+                    {m}
+                  </button>
+                );
+              })}
+            </div>
+            {(form.responsaveis || []).length === 0 && (
+              <div style={{ fontSize: 11.5, color: C.gray, fontStyle: "italic", marginTop: 6 }}>Por atribuir — clica num nome para adicionar</div>
+            )}
           </Field>
           <Field label="Prioridade">
             <select style={selectStyle} value={form.prioridade || "Média"} onChange={(e) => set("prioridade", e.target.value)}>
