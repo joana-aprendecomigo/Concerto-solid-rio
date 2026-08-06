@@ -1255,7 +1255,11 @@ export default function App() {
   // regista o primeiro contacto de um contacto diretamente a partir da conclusão da tarefa "Contactar X"
   // (quando o utilizador ainda não enviou nenhum e-mail pela secção "Comunicação"). Tem exatamente o
   // mesmo efeito que enviar o primeiro e-mail: inicia o fluxo de acompanhamento/follow-up automático.
-  const marcarPrimeiroContacto = async (tipo, contactId) => {
+  // `estadoDesejado`: por omissão "A aguardar resposta" (caso de uso original — tarefa "Contactar X"
+  // concluída sem contexto de outro estado). Quando quem chama já sabe para que estado o contacto vai
+  // (ex.: a pessoa escolheu diretamente "Confirmado" na lista ou na ficha), esse estado é respeitado —
+  // iniciar o seguimento não deve pisar uma escolha mais específica que a pessoa acabou de fazer.
+  const marcarPrimeiroContacto = async (tipo, contactId, estadoDesejado = "A aguardar resposta") => {
     const persist = persistByTipo[tipo];
     const list = listByTipo[tipo] || [];
     const contact = list.find((c) => c.id === contactId);
@@ -1265,7 +1269,7 @@ export default function App() {
     const updated = {
       ...contact,
       historico: [evento, ...(contact.historico || [])],
-      estado: "A aguardar resposta",
+      estado: estadoDesejado,
       aguardaResposta: true,
       dataUltimoEnvio: agora,
       dataUltimoContacto: agora.slice(0, 10),
@@ -1397,10 +1401,20 @@ export default function App() {
   };
 
   // assim que o estado de um contacto deixa de ser "Por contactar" (alterado na secção "Dados" do
-  // contacto), a tarefa de primeiro contacto ("Contactar X") correspondente passa automaticamente a
-  // "Concluída" — mantém a lista de tarefas sempre sincronizada com o estado real de cada contacto,
-  // sem tocar em mais nada no contacto (o estado já foi definido manualmente por quem o editou).
-  const concluirTarefaDeContacto = async (tipo, contactId) => {
+  // contacto, ou diretamente na lista), a tarefa de primeiro contacto ("Contactar X") correspondente
+  // passa automaticamente a "Concluída" — mantém a lista de tarefas sempre sincronizada com o estado
+  // real de cada contacto. Deixar de estar "Por contactar" significa, na prática, que o primeiro
+  // contacto já foi feito (por telefone, presencialmente, etc., não necessariamente por e-mail pela
+  // plataforma) — por isso arranca o seguimento/follow-up automático da mesma forma que arrancaria se
+  // a pessoa tivesse marcado a tarefa como concluída ou enviado o primeiro e-mail.
+  // `novoEstado`: o estado que o contacto acabou de passar a ter. Vem de quem chama, em vez de ser
+  // relido de `listByTipo`, porque essa lista só reflete a alteração no próximo render — lê-la aqui,
+  // na mesma função síncrona que acabou de persistir a mudança, devolveria o estado antigo.
+  const concluirTarefaDeContacto = async (tipo, contactId, novoEstado) => {
+    const list = listByTipo[tipo] || [];
+    const contact = list.find((c) => c.id === contactId);
+    if (contact && !contact.aguardaResposta) await marcarPrimeiroContacto(tipo, contactId, novoEstado || contact.estado);
+
     const task = (tasksRef.current || []).find(
       (t) => t.origem && t.origem.tipo === tipo && t.origem.contactId === contactId && !t.origem.evento
     );
@@ -1419,9 +1433,9 @@ export default function App() {
   };
 
   const concluirTarefaHandlers = {
-    artista: (id) => concluirTarefaDeContacto("artista", id),
-    espaco: (id) => concluirTarefaDeContacto("espaco", id),
-    parceiro: (id) => concluirTarefaDeContacto("parceiro", id),
+    artista: (id, novoEstado) => concluirTarefaDeContacto("artista", id, novoEstado),
+    espaco: (id, novoEstado) => concluirTarefaDeContacto("espaco", id, novoEstado),
+    parceiro: (id, novoEstado) => concluirTarefaDeContacto("parceiro", id, novoEstado),
   };
 
   // move uma tarefa para um novo estado (usado pelo drag-and-drop do quadro Kanban); se a tarefa tiver
@@ -2496,7 +2510,7 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
       atualizadoPor: user,
     };
     await persistArtists(listaCompleta.map((x) => (x.id === contacto.id ? atualizado : x)));
-    if (novoEstado !== "Por contactar") await onConcluirTarefaContacto?.(contacto.id);
+    if (novoEstado !== "Por contactar") await onConcluirTarefaContacto?.(contacto.id, novoEstado);
     // Confirmado ou Recusado encerram a negociação, e "Por contactar" recomeça
     // do zero: em qualquer dos casos as tarefas de follow-up pendentes
     // referem-se a um fluxo que deixou de existir.
@@ -2550,7 +2564,7 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
     else next = listaCompleta.map((a) => (a.id === withMeta.id ? withMeta : a));
     if (withMeta.responsavel) registerMember(withMeta.responsavel);
     await persistArtists(next);
-    if (withMeta.estado !== "Por contactar") await onConcluirTarefaContacto?.(withMeta.id);
+    if (withMeta.estado !== "Por contactar") await onConcluirTarefaContacto?.(withMeta.id, withMeta.estado);
     // Também pela ficha: mudar para um estado final ou de volta a "Por
     // contactar" torna obsoletas as tarefas de follow-up pendentes.
     if (ESTADOS_FINAIS.includes(withMeta.estado) || withMeta.estado === ESTADO_NAO_CONTACTADO) {
@@ -3433,7 +3447,7 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
       atualizadoPor: user,
     };
     await persistSpaces(listaCompleta.map((x) => (x.id === contacto.id ? atualizado : x)));
-    if (novoEstado !== "Por contactar") await onConcluirTarefaContacto?.(contacto.id);
+    if (novoEstado !== "Por contactar") await onConcluirTarefaContacto?.(contacto.id, novoEstado);
     // Confirmado ou Recusado encerram a negociação, e "Por contactar" recomeça
     // do zero: em qualquer dos casos as tarefas de follow-up pendentes
     // referem-se a um fluxo que deixou de existir.
@@ -3487,7 +3501,7 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
     else next = listaCompleta.map((a) => (a.id === withMeta.id ? withMeta : a));
     if (withMeta.responsavel) registerMember(withMeta.responsavel);
     await persistSpaces(next);
-    if (withMeta.estado !== "Por contactar") await onConcluirTarefaContacto?.(withMeta.id);
+    if (withMeta.estado !== "Por contactar") await onConcluirTarefaContacto?.(withMeta.id, withMeta.estado);
     // Também pela ficha: mudar para um estado final ou de volta a "Por
     // contactar" torna obsoletas as tarefas de follow-up pendentes.
     if (ESTADOS_FINAIS.includes(withMeta.estado) || withMeta.estado === ESTADO_NAO_CONTACTADO) {
@@ -4563,7 +4577,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
       atualizadoPor: user,
     };
     await persistPartners(listaCompleta.map((x) => (x.id === contacto.id ? atualizado : x)));
-    if (novoEstado !== "Por contactar") await onConcluirTarefaContacto?.(contacto.id);
+    if (novoEstado !== "Por contactar") await onConcluirTarefaContacto?.(contacto.id, novoEstado);
     // Confirmado ou Recusado encerram a negociação, e "Por contactar" recomeça
     // do zero: em qualquer dos casos as tarefas de follow-up pendentes
     // referem-se a um fluxo que deixou de existir.
@@ -4617,7 +4631,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
     else next = listaCompleta.map((a) => (a.id === withMeta.id ? withMeta : a));
     if (withMeta.responsavel) registerMember(withMeta.responsavel);
     await persistPartners(next);
-    if (withMeta.estado !== "Por contactar") await onConcluirTarefaContacto?.(withMeta.id);
+    if (withMeta.estado !== "Por contactar") await onConcluirTarefaContacto?.(withMeta.id, withMeta.estado);
     // Também pela ficha: mudar para um estado final ou de volta a "Por
     // contactar" torna obsoletas as tarefas de follow-up pendentes.
     if (ESTADOS_FINAIS.includes(withMeta.estado) || withMeta.estado === ESTADO_NAO_CONTACTADO) {
