@@ -1186,9 +1186,17 @@ export default function App() {
     return dataEnvio ? Math.floor((Date.now() - dataEnvio.getTime()) / 86400000) : null;
   };
 
+  // Número máximo de follow-ups depois do primeiro contacto — ao fim deste, sem resposta,
+  // deixa-se de insistir automaticamente e o contacto passa a "Recusado" (ver runFollowupAutoScan).
+  const MAX_FASES_FOLLOWUP = 5;
+
   // cria a tarefa de follow-up da fase seguinte + regista o evento correspondente na timeline do
   // contacto. Usada tanto pelo clique manual em "Ainda sem resposta" como pela verificação automática
   // por tempo (autoOrigem controla o texto/tipo do evento gerado, para se distinguir na timeline).
+  //
+  // Importante: isto só cria a tarefa "enviar o follow-up da fase seguinte" — o contacto só avança
+  // para essa fase (e o relógio dos dias só reinicia) quando a tarefa for de facto concluída (ver
+  // setTaskEstado). Até lá, `faseFollowup` continua a apontar para a última fase realmente enviada.
   const criarFollowupTask = async (tipo, contact, { auto = false, dias = null } = {}) => {
     const faseAtual = contact.faseFollowup || 1;
     const faseSeguinte = faseAtual + 1;
@@ -1209,7 +1217,7 @@ export default function App() {
     const evento = auto
       ? { id: uid(), tipo: "followup_auto", data: new Date().toISOString(), user: "sistema", fase: faseSeguinte, templateNome: tmpl?.nome || null, dias }
       : { id: uid(), tipo: "followup_criado", data: new Date().toISOString(), user, fase: faseSeguinte, templateNome: tmpl?.nome || null };
-    const updated = { ...contact, faseFollowup: faseSeguinte, aguardaResposta: true, historico: [evento, ...(contact.historico || [])] };
+    const updated = { ...contact, historico: [evento, ...(contact.historico || [])] };
     return { novaTarefa, updated, tmpl, faseSeguinte };
   };
 
@@ -1243,6 +1251,13 @@ export default function App() {
     if (dias < intervalo) {
       showToast(`Ainda não passaram ${intervalo} dias desde o envio (${dias} dia(s)). O follow-up automático só é criado ao fim de ${intervalo} dias sem resposta.`, "error");
       return null;
+    }
+    if ((contact.faseFollowup || 1) + 1 > MAX_FASES_FOLLOWUP) {
+      const evento = { id: uid(), tipo: "estado", data: new Date().toISOString(), user, de: contact.estado, para: "Recusado" };
+      const fechado = { ...contact, estado: "Recusado", aguardaResposta: false, historico: [evento, ...(contact.historico || [])] };
+      await persist(list.map((c) => (c.id === contactId ? fechado : c)));
+      showToast(`${contact.nome}: sem resposta após ${MAX_FASES_FOLLOWUP} follow-ups — marcado como "Recusado".`);
+      return fechado;
     }
 
     const { novaTarefa, updated, tmpl, faseSeguinte } = await criarFollowupTask(tipo, contact, { auto: false });
@@ -1306,6 +1321,17 @@ export default function App() {
         const intervalo = intervaloDaFase(tipo, contact.faseFollowup);
         if (dias === null || dias < intervalo) continue;
         const faseSeguinte = (contact.faseFollowup || 1) + 1;
+
+        // Já tentámos o número máximo de follow-ups sem resposta: em vez de continuar a
+        // insistir automaticamente, fecha-se o ciclo — fica sinalizado como "Recusado" para
+        // alguém da equipa decidir manualmente se vale a pena tentar por outra via.
+        if (faseSeguinte > MAX_FASES_FOLLOWUP) {
+          const evento = { id: uid(), tipo: "estado", data: new Date().toISOString(), user: "sistema", de: contact.estado, para: "Recusado" };
+          const fechado = { ...contact, estado: "Recusado", aguardaResposta: false, historico: [evento, ...(contact.historico || [])] };
+          listaAtualizada = (listaAtualizada || list).map((c) => (c.id === contact.id ? fechado : c));
+          continue;
+        }
+
         const jaTemPendente = (tasksRef.current || []).some(
           (t) => t.origem && t.origem.tipo === tipo && t.origem.contactId === contact.id &&
             t.origem.evento === "followup" && t.origem.fase === faseSeguinte
@@ -1459,6 +1485,21 @@ export default function App() {
         if (!eventoOrigem && !contact.aguardaResposta) {
           // tarefa de primeiro contacto concluída, sem envio de email prévio: inicia o seguimento
           await marcarPrimeiroContacto(tipo, contactId);
+        } else if (eventoOrigem === "followup") {
+          // Tarefa de follow-up concluída: o email desta fase foi de facto (re)enviado agora — o
+          // contacto avança para essa fase e o relógio dos dias sem resposta reinicia a partir daqui,
+          // não do envio original (ver criarFollowupTask, que não toca nestes campos ao criar a tarefa).
+          const agora = new Date().toISOString();
+          const evento = { id: uid(), tipo: "tarefa_concluida", data: agora, user, tarefaTitulo: task.titulo };
+          const updated = {
+            ...contact,
+            faseFollowup: task.origem.fase,
+            aguardaResposta: true,
+            dataUltimoEnvio: agora,
+            dataUltimoContacto: agora.slice(0, 10),
+            historico: [evento, ...(contact.historico || [])],
+          };
+          await persist(list.map((c) => (c.id === contactId ? updated : c)));
         } else {
           const evento = { id: uid(), tipo: "tarefa_concluida", data: new Date().toISOString(), user, tarefaTitulo: task.titulo };
           const updated = { ...contact, historico: [evento, ...(contact.historico || [])] };
@@ -1688,8 +1729,6 @@ export default function App() {
             registerMember={registerMember}
             showToast={showToast}
             templates={templates}
-            onResposta={respostaHandlers.artista}
-            onAddNota={notaHandlers.artista}
             onEditEvento={editarEventoHandlers.artista}
             onConcluirTarefaContacto={concluirTarefaHandlers.artista}
             onFluxoReiniciado={fluxoReiniciadoHandlers.artista}
@@ -1704,8 +1743,6 @@ export default function App() {
             registerMember={registerMember}
             showToast={showToast}
             templates={templates}
-            onResposta={respostaHandlers.espaco}
-            onAddNota={notaHandlers.espaco}
             onEditEvento={editarEventoHandlers.espaco}
             onConcluirTarefaContacto={concluirTarefaHandlers.espaco}
             onFluxoReiniciado={fluxoReiniciadoHandlers.espaco}
@@ -1720,8 +1757,6 @@ export default function App() {
             registerMember={registerMember}
             showToast={showToast}
             templates={templates}
-            onResposta={respostaHandlers.parceiro}
-            onAddNota={notaHandlers.parceiro}
             onEditEvento={editarEventoHandlers.parceiro}
             onConcluirTarefaContacto={concluirTarefaHandlers.parceiro}
             onFluxoReiniciado={fluxoReiniciadoHandlers.parceiro}
@@ -2423,7 +2458,7 @@ function ComingSoon({ module }) {
 }
 
 /* ---------- artistas module ---------- */
-function ArtistasModule({ artists, persistArtists, user, members, registerMember, showToast, templates, onResposta, onAddNota, onEditEvento, onConcluirTarefaContacto, onFluxoReiniciado, soLeitura }) {
+function ArtistasModule({ artists, persistArtists, user, members, registerMember, showToast, templates, onEditEvento, onConcluirTarefaContacto, onFluxoReiniciado, soLeitura }) {
   const [search, setSearch] = useState("");
   const [filterEstado, setFilterEstado] = useState("Todos");
   const [filterFase, setFilterFase] = useState("Todas");
@@ -2581,14 +2616,6 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
     showToast(`${toDelete.nome} removido.`);
     setModal(null);
     setToDelete(null);
-  };
-
-  // regista automaticamente um envio de email na timeline e ativa o seguimento/follow-up automático
-  const registerSend = async (contactId, entry) => {
-    const next = listaCompleta.map((a) => (a.id === contactId ? aplicarEnvioEmailContacto(a, entry) : a));
-    await persistArtists(next);
-    await onConcluirTarefaContacto?.(contactId);
-    showToast(`E-mail registado — "${entry.templateNome}". Contacto passou para "A aguardar resposta".`);
   };
 
   // reinicia o estado de contacto de todos os artistas para "Por contactar" — usar quando se vai
@@ -2879,11 +2906,7 @@ function ArtistasModule({ artists, persistArtists, user, members, registerMember
           onSave={saveArtist}
           isNew={modal === "add"}
           soLeitura={soLeitura}
-          templates={templates}
           user={user}
-          onSendEmail={registerSend}
-          onResposta={onResposta}
-          onAddNota={onAddNota}
           onEditEvento={onEditEvento}
         />
       )}
@@ -3365,7 +3388,7 @@ function StatCard({ label, value, icon: Icon, color, onClick, active, title }) {
 }
 
 /* ---------- espaços module ---------- */
-function EspacosModule({ spaces, persistSpaces, user, members, registerMember, showToast, templates, onResposta, onAddNota, onEditEvento, onConcluirTarefaContacto, onFluxoReiniciado, soLeitura }) {
+function EspacosModule({ spaces, persistSpaces, user, members, registerMember, showToast, templates, onEditEvento, onConcluirTarefaContacto, onFluxoReiniciado, soLeitura }) {
   const [search, setSearch] = useState("");
   const [filterEstado, setFilterEstado] = useState("Todos");
   const [filterFase, setFilterFase] = useState("Todas");
@@ -3518,14 +3541,6 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
     showToast(`${toDelete.nome} removido.`);
     setModal(null);
     setToDelete(null);
-  };
-
-  // regista automaticamente um envio de email na timeline e ativa o seguimento/follow-up automático
-  const registerSend = async (contactId, entry) => {
-    const next = listaCompleta.map((a) => (a.id === contactId ? aplicarEnvioEmailContacto(a, entry) : a));
-    await persistSpaces(next);
-    await onConcluirTarefaContacto?.(contactId);
-    showToast(`E-mail registado — "${entry.templateNome}". Contacto passou para "A aguardar resposta".`);
   };
 
   // reinicia o estado de contacto de todos os espaços para "Por contactar" — usar quando se vai
@@ -3815,11 +3830,7 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
           onSave={saveSpace}
           isNew={modal === "add"}
           soLeitura={soLeitura}
-          templates={templates}
           user={user}
-          onSendEmail={registerSend}
-          onResposta={onResposta}
-          onAddNota={onAddNota}
           onEditEvento={onEditEvento}
         />
       )}
@@ -3861,172 +3872,6 @@ function EspacosModule({ spaces, persistSpaces, user, members, registerMember, s
   );
 }
 
-/* ---------- secção "Comunicação" partilhada por Artistas, Espaços e Parceiros ---------- */
-/* permite escolher um template, ver a prévia já preenchida com os dados do contacto, editar antes de enviar e enviar o email */
-function ComunicacaoTab({ tipo, contact, templates, user, onSend, showToast, remetente }) {
-  const tipoInfo = TIPOS_CONTACTO[tipo] || {};
-  const categoriaDefault = tipoInfo.categoriaTemplate || "Todas";
-  const list = templates || [];
-  // Categorias com pelo menos um template — as secções são geridas noutro
-  // sítio (módulo Templates); aqui só interessa filtrar entre as que já têm
-  // conteúdo para mostrar.
-  const categoriasComTemplates = useMemo(
-    () => Array.from(new Set(list.map((t) => t.categoria).filter(Boolean))),
-    [list]
-  );
-
-  const [filterCategoria, setFilterCategoria] = useState(categoriaDefault);
-  const templatesFiltrados = useMemo(
-    () => list.filter((t) => filterCategoria === "Todas" || t.categoria === filterCategoria),
-    [list, filterCategoria]
-  );
-
-  const [selectedId, setSelectedId] = useState("");
-  // seleciona automaticamente o primeiro template disponível (da categoria sugerida) quando a lista muda
-  useEffect(() => {
-    if (templatesFiltrados.length === 0) { setSelectedId(""); return; }
-    if (!templatesFiltrados.some((t) => t.id === selectedId)) {
-      setSelectedId(templatesFiltrados[0].id);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [templatesFiltrados]);
-
-  const selected = list.find((t) => t.id === selectedId) || null;
-
-  const [innerTab, setInnerTab] = useState("editar"); // 'editar' | 'preview'
-  const [assunto, setAssunto] = useState("");
-  const [corpoState, setCorpoState] = useState("");
-  const [sending, setSending] = useState(false);
-  const bodyRef = useRef(null);
-
-  // sempre que se muda de template, preenche o assunto/corpo com os dados reais do contacto (ainda editável depois)
-  useEffect(() => {
-    if (selected) {
-      const filled = aplicarVariaveisContacto(selected.assunto, selected.corpo, contact, tipo, remetente);
-      setAssunto(filled.assunto);
-      setCorpoState(filled.corpo);
-    } else {
-      setAssunto("");
-      setCorpoState("");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId]);
-
-  // sincroniza o editor sempre que voltamos à tab "editar"
-  useEffect(() => {
-    if (innerTab === "editar" && bodyRef.current) {
-      bodyRef.current.innerHTML = corpoState || "";
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [innerTab, selectedId]);
-
-  const format = (cmd) => {
-    if (!bodyRef.current) return;
-    bodyRef.current.focus();
-    document.execCommand(cmd, false, null);
-    setCorpoState(bodyRef.current.innerHTML);
-  };
-
-  const semEmail = !contact?.email;
-  const podeEnviar = !!selected && !semEmail && assunto.trim() && !sending;
-
-  const handleSend = async () => {
-    if (!podeEnviar) return;
-    const corpoFinal = bodyRef.current ? bodyRef.current.innerHTML : corpoState;
-    setSending(true);
-    try {
-      const texto = htmlParaTexto(corpoFinal);
-      abrirMailto(contact.email, assunto, texto);
-      const entry = criarRegistoEnvio({ template: selected, assunto, corpo: corpoFinal, user });
-      await onSend(entry);
-    } finally {
-      setSending(false);
-    }
-  };
-
-  if (list.length === 0) {
-    return (
-      <div style={{ padding: "40px 24px", textAlign: "center", color: C.inkSoft }}>
-        <Mails size={26} color={C.gray} style={{ marginBottom: 10 }} />
-        <div style={{ fontWeight: 600, color: C.ink, marginBottom: 4 }}>Ainda não há templates de email</div>
-        <div style={{ fontSize: 13.5 }}>Cria um template no módulo "Templates de Email" para poderes comunicar com este contacto a partir daqui.</div>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ padding: "18px 24px", maxHeight: "58vh", overflowY: "auto" }}>
-      {semEmail && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", borderRadius: 9, background: C.amberBg, color: C.amber, fontSize: 12.5, fontWeight: 500, marginBottom: 14 }}>
-          <AlertTriangle size={14} /> Este contacto não tem um email definido — adiciona um na secção "Dados" para poderes enviar.
-        </div>
-      )}
-
-      <div className="form-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
-        <Field label="Categoria do template">
-          <select style={selectStyle} value={filterCategoria} onChange={(e) => setFilterCategoria(e.target.value)}>
-            <option value="Todas">Todas as categorias</option>
-            {categoriasComTemplates.map((nome) => <option key={nome} value={nome}>{nome}</option>)}
-          </select>
-        </Field>
-        <Field label="Template">
-          <select style={selectStyle} value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>
-            {templatesFiltrados.length === 0 && <option value="">Sem templates nesta categoria</option>}
-            {templatesFiltrados.map((t) => (
-              <option key={t.id} value={t.id}>{t.fase ? `Fase ${t.fase} — ` : ""}{t.nome}</option>
-            ))}
-          </select>
-        </Field>
-      </div>
-
-      {selected && (
-        <>
-          <div style={{ display: "flex", gap: 4, borderBottom: `1px solid ${C.line}`, marginBottom: 14 }}>
-            <button type="button" onClick={() => setInnerTab("editar")} style={tabBtn(innerTab === "editar")}>Editar</button>
-            <button type="button" onClick={() => setInnerTab("preview")} style={tabBtn(innerTab === "preview")}>
-              <Eye size={13} /> Pré-visualização
-            </button>
-          </div>
-
-          {innerTab === "editar" ? (
-            <>
-              <Field label="Assunto do e-mail">
-                <input style={inputStyle} value={assunto} onChange={(e) => setAssunto(e.target.value)} />
-              </Field>
-              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.inkSoft, margin: "12px 0 5px" }}>Corpo do e-mail</label>
-              <div style={{ border: `1px solid ${C.line}`, borderRadius: 9, overflow: "hidden" }}>
-                <div style={{ display: "flex", gap: 2, padding: 6, background: "#FAFBFC", borderBottom: `1px solid ${C.line}` }}>
-                  <button type="button" onClick={() => format("bold")} style={toolBtn} title="Negrito"><Bold size={14} /></button>
-                  <button type="button" onClick={() => format("italic")} style={toolBtn} title="Itálico"><Italic size={14} /></button>
-                  <button type="button" onClick={() => format("underline")} style={toolBtn} title="Sublinhado"><Underline size={14} /></button>
-                  <button type="button" onClick={() => format("insertUnorderedList")} style={toolBtn} title="Lista"><List size={14} /></button>
-                </div>
-                <div
-                  ref={bodyRef}
-                  contentEditable
-                  suppressContentEditableWarning
-                  onInput={(e) => setCorpoState(e.currentTarget.innerHTML)}
-                  style={{ minHeight: 160, padding: "12px 14px", fontSize: 13.5, fontFamily: "Inter, sans-serif", color: C.ink, outline: "none", lineHeight: 1.6 }}
-                />
-              </div>
-              <div style={{ marginTop: 10, fontSize: 12, color: C.inkSoft, lineHeight: 1.5 }}>
-                As variáveis do template já foram substituídas pelos dados deste contacto. Podes editar livremente o texto antes de enviar.
-              </div>
-            </>
-          ) : (
-            <TemplatePreviewContent assunto={assunto} corpo={bodyRef.current ? bodyRef.current.innerHTML : corpoState} />
-          )}
-
-          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>
-            <button type="button" onClick={handleSend} disabled={!podeEnviar} style={{ ...btnPrimary, opacity: podeEnviar ? 1 : 0.5, cursor: podeEnviar ? "pointer" : "not-allowed" }}>
-              <Send size={15} /> {sending ? "A abrir cliente de email…" : "Enviar E-mail"}
-            </button>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
 
 /* ---------- Timeline — elemento principal da ficha de Artistas, Espaços e Parceiros ---------- */
 // timeline unificada e visual de um contacto: emails enviados, follow-ups automáticos, respostas,
@@ -4347,7 +4192,7 @@ function TimelineEventModal({ evento, onClose, onEdit }) {
 }
 
 /* ---------- espaço add/edit modal ---------- */
-function EspacoModal({ data, members, existingList, onClose, onSave, isNew, templates, user, onSendEmail, onResposta, onAddNota, onEditEvento, soLeitura }) {
+function EspacoModal({ data, members, existingList, onClose, onSave, isNew, user, onEditEvento, soLeitura }) {
   const [form, setForm] = useState({ ...data, historico: data.historico || [] });
   // Abre sempre nos dados: quem clica no lápis quer editar o contacto, não
   // consultar o histórico. A Timeline fica a um clique de distância.
@@ -4493,7 +4338,7 @@ function EspacoModal({ data, members, existingList, onClose, onSave, isNew, temp
 }
 
 /* ---------- parceiros module ---------- */
-function ParceirosModule({ partners, persistPartners, user, members, registerMember, showToast, templates, onResposta, onAddNota, onEditEvento, onConcluirTarefaContacto, onFluxoReiniciado, soLeitura }) {
+function ParceirosModule({ partners, persistPartners, user, members, registerMember, showToast, templates, onEditEvento, onConcluirTarefaContacto, onFluxoReiniciado, soLeitura }) {
   const [search, setSearch] = useState("");
   const [filterCategoria, setFilterCategoria] = useState("Todas");
   const [filterEstado, setFilterEstado] = useState("Todos");
@@ -4648,14 +4493,6 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
     showToast(`${toDelete.nome} removido.`);
     setModal(null);
     setToDelete(null);
-  };
-
-  // regista automaticamente um envio de email na timeline e ativa o seguimento/follow-up automático
-  const registerSend = async (contactId, entry) => {
-    const next = listaCompleta.map((a) => (a.id === contactId ? aplicarEnvioEmailContacto(a, entry) : a));
-    await persistPartners(next);
-    await onConcluirTarefaContacto?.(contactId);
-    showToast(`E-mail registado — "${entry.templateNome}". Contacto passou para "A aguardar resposta".`);
   };
 
   // seleção em massa — alterna a seleção de um único parceiro, ou de todos os visíveis (filtrados/ordenados)
@@ -4920,11 +4757,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
           onSave={savePartner}
           isNew={modal === "add"}
           soLeitura={soLeitura}
-          templates={templates}
           user={user}
-          onSendEmail={registerSend}
-          onResposta={onResposta}
-          onAddNota={onAddNota}
           onEditEvento={onEditEvento}
         />
       )}
@@ -4956,7 +4789,7 @@ function ParceirosModule({ partners, persistPartners, user, members, registerMem
 }
 
 /* ---------- parceiro add/edit modal ---------- */
-function ParceiroModal({ data, members, existingList, onClose, onSave, isNew, templates, user, onSendEmail, onResposta, onAddNota, onEditEvento, soLeitura }) {
+function ParceiroModal({ data, members, existingList, onClose, onSave, isNew, user, onEditEvento, soLeitura }) {
   const [form, setForm] = useState({ ...data, historico: data.historico || [] });
   // Abre sempre nos dados: quem clica no lápis quer editar o contacto, não
   // consultar o histórico. A Timeline fica a um clique de distância.
@@ -5102,7 +4935,7 @@ function ParceiroModal({ data, members, existingList, onClose, onSave, isNew, te
 }
 
 /* ---------- artist add/edit modal ---------- */
-function ArtistModal({ data, members, existingList, onClose, onSave, isNew, templates, user, onSendEmail, onResposta, onAddNota, onEditEvento, soLeitura }) {
+function ArtistModal({ data, members, existingList, onClose, onSave, isNew, user, onEditEvento, soLeitura }) {
   const [form, setForm] = useState({ ...data, historico: data.historico || [] });
   // Abre sempre nos dados: quem clica no lápis quer editar o contacto, não
   // consultar o histórico. A Timeline fica a um clique de distância.
@@ -6530,29 +6363,30 @@ function AutoTaskModal({ task, templates, contact, onClose, onResposta, onSetTas
   const faseEhAtual = contact && (contact.faseFollowup || 1) === fase;
   // Em modo visitante o template é visível, mas registar resposta ou marcar
   // contacto alteraria o seguimento — fica de fora.
-  const podeRegistarResposta = !soLeitura && !!contact && !!contact.aguardaResposta && faseEhAtual;
-  const podeIniciarSeguimento = !soLeitura && !!contact && !contact.aguardaResposta && !origem.evento && task.estado !== "Concluída";
+  const podeRegistarResposta = !soLeitura && !!contact && !!contact.aguardaResposta && faseEhAtual && task.estado === "Concluída";
+  // Tarefa ainda por enviar: tanto a de primeiro contacto como a de um follow-up de fase seguinte —
+  // em ambos os casos, concluir a tarefa é o que confirma que o email saiu e arranca (ou reinicia) o
+  // relógio dos dias sem resposta (ver setTaskEstado em App).
+  const podeMarcarEnviado = !soLeitura && !!contact && task.estado !== "Concluída" &&
+    (origem.evento === "followup" ? !faseEhAtual : !contact.aguardaResposta);
 
   const clicarResposta = async (teveResposta) => {
     if (!onResposta) return;
     setBusy(true);
     try {
       const updated = await onResposta(contact.id, teveResposta);
-      if (updated && task.estado !== "Concluída") {
-        await onSetTaskEstado(task, "Concluída");
-      }
       if (updated) onClose();
     } finally {
       setBusy(false);
     }
   };
 
-  const clicarIniciarSeguimento = async () => {
+  const clicarMarcarEnviado = async () => {
     setBusy(true);
     try {
-      // onSetTaskEstado já trata de iniciar o seguimento automaticamente quando esta é a tarefa de
-      // primeiro contacto e o contacto ainda não estava "a aguardar resposta" (ver setTaskEstado em
-      // App) — chamar apenas esta função evita duplicar o efeito com dois pedidos em sequência.
+      // onSetTaskEstado já trata de iniciar (ou avançar) o seguimento automaticamente ao concluir
+      // esta tarefa — tanto para a tarefa de primeiro contacto como para uma de follow-up (ver
+      // setTaskEstado em App). Chamar apenas esta função evita duplicar o efeito.
       await onSetTaskEstado(task, "Concluída");
       onClose();
     } finally {
@@ -6618,13 +6452,15 @@ function AutoTaskModal({ task, templates, contact, onClose, onResposta, onSetTas
             )}
 
             <div style={{ border: `1px solid ${C.line}`, borderRadius: 12, padding: 16 }}>
-              {podeIniciarSeguimento ? (
+              {podeMarcarEnviado ? (
                 <>
                   <div style={{ fontSize: 12.5, color: C.inkSoft, marginBottom: 12, lineHeight: 1.5 }}>
-                    Este contacto ainda não tem nenhum e-mail registado a partir da plataforma. Envia o template acima (secção "Comunicação" do contacto) ou marca abaixo que já foi feito o primeiro contacto por outra via — isso inicia automaticamente o acompanhamento/follow-up.
+                    {origem.evento === "followup"
+                      ? `Envia o template acima (secção "Comunicação" do contacto) e depois marca aqui que o follow-up desta fase foi enviado — isso reinicia a contagem de dias até ao seguimento seguinte.`
+                      : `Este contacto ainda não tem nenhum e-mail registado a partir da plataforma. Envia o template acima (secção "Comunicação" do contacto) ou marca abaixo que já foi feito o primeiro contacto por outra via — isso inicia automaticamente o acompanhamento/follow-up.`}
                   </div>
-                  <button type="button" disabled={busy} onClick={clicarIniciarSeguimento} style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }}>
-                    <Send size={15} /> Marcar como contactado
+                  <button type="button" disabled={busy} onClick={clicarMarcarEnviado} style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }}>
+                    <Send size={15} /> {origem.evento === "followup" ? "Marcar como enviado" : "Marcar como contactado"}
                   </button>
                 </>
               ) : podeRegistarResposta ? (
