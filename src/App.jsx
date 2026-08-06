@@ -5245,6 +5245,11 @@ function TemplatesModule({ templates, persistTemplates, categorias, persistCateg
   const [arrastandoId, setArrastandoId] = useState(null);
   const [sobreId, setSobreId] = useState(null);
 
+  // Arrastar um template (não a secção inteira) de uma coluna para outra,
+  // para o mudar de categoria sem abrir o modal de edição.
+  const [arrastandoTemplateId, setArrastandoTemplateId] = useState(null);
+  const [categoriaSobreDrop, setCategoriaSobreDrop] = useState(null);
+
   const list = templates || [];
   // Enquanto as categorias carregam (ou se a migration 0013 ainda não correu
   // nesta base de dados), não há secções onde encaixar nada — antes de as
@@ -5331,6 +5336,25 @@ function TemplatesModule({ templates, persistTemplates, categorias, persistCateg
     await persistCategorias(next);
   };
 
+  // Arrastar um template para outra coluna: muda a sua categoria e entra
+  // na fase seguinte livre dessa secção, para não colidir com um template
+  // que já lá esteja na mesma fase.
+  const moverTemplateParaCategoria = async (templateId, nomeCategoria) => {
+    const idOrigem = arrastandoTemplateId;
+    setArrastandoTemplateId(null);
+    setCategoriaSobreDrop(null);
+    const template = list.find((t) => t.id === idOrigem);
+    if (!template || template.categoria === nomeCategoria) return;
+    const agora = new Date().toISOString();
+    const next = list.map((t) =>
+      t.id === template.id
+        ? { ...t, categoria: nomeCategoria, fase: proximaFase(nomeCategoria), atualizadoPor: user, atualizadoEm: agora }
+        : t
+    );
+    await persistTemplates(next);
+    showToast(`Template "${template.nome}" movido para "${nomeCategoria}".`);
+  };
+
   const saveTemplate = async (data) => {
     const agora = new Date().toISOString();
     const withMeta = {
@@ -5384,19 +5408,35 @@ function TemplatesModule({ templates, persistTemplates, categorias, persistCateg
           const totalCat = (porCategoria[cat.v] || []).length;
           const templatesCat = (porCategoria[cat.v] || []).filter(matches);
           const arrastandoSobreEsta = sobreId === catRow.id && arrastandoId && arrastandoId !== catRow.id;
+          const templateSobreEsta = categoriaSobreDrop === catRow.nome && arrastandoTemplateId;
           return (
             <div
               key={cat.v}
-              draggable={!soLeitura}
-              onDragStart={() => setArrastandoId(catRow.id)}
-              onDragOver={(e) => { e.preventDefault(); if (sobreId !== catRow.id) setSobreId(catRow.id); }}
-              onDragLeave={() => setSobreId((s) => (s === catRow.id ? null : s))}
-              onDrop={() => largarCategoria(catRow.id)}
-              onDragEnd={() => { setArrastandoId(null); setSobreId(null); }}
-              style={{ width: 280, flexShrink: 0, display: "flex", flexDirection: "column", opacity: arrastandoId === catRow.id ? 0.4 : 1, outline: arrastandoSobreEsta ? `2px dashed ${C.accent}` : "none", outlineOffset: 4, borderRadius: 12 }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (arrastandoTemplateId && categoriaSobreDrop !== catRow.nome) setCategoriaSobreDrop(catRow.nome);
+                else if (arrastandoId && sobreId !== catRow.id) setSobreId(catRow.id);
+              }}
+              onDragLeave={() => {
+                setSobreId((s) => (s === catRow.id ? null : s));
+                setCategoriaSobreDrop((c) => (c === catRow.nome ? null : c));
+              }}
+              onDrop={() => {
+                if (arrastandoTemplateId) moverTemplateParaCategoria(arrastandoTemplateId, catRow.nome);
+                else largarCategoria(catRow.id);
+              }}
+              style={{ width: 280, flexShrink: 0, display: "flex", flexDirection: "column", opacity: arrastandoId === catRow.id ? 0.4 : 1, outline: (arrastandoSobreEsta || templateSobreEsta) ? `2px dashed ${C.accent}` : "none", outlineOffset: 4, borderRadius: 12 }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: 10, background: cat.bg, marginBottom: 12 }}>
-                {!soLeitura && <GripVertical size={13} color={cat.color} style={{ cursor: "grab", flexShrink: 0, opacity: 0.6 }} />}
+                {!soLeitura && (
+                  <GripVertical
+                    size={13} color={cat.color}
+                    draggable
+                    onDragStart={() => setArrastandoId(catRow.id)}
+                    onDragEnd={() => { setArrastandoId(null); setSobreId(null); }}
+                    style={{ cursor: "grab", flexShrink: 0, opacity: 0.6 }}
+                  />
+                )}
                 <CIcon size={15} color={cat.color} />
                 <div style={{ fontWeight: 700, fontSize: 12.5, color: cat.color, flex: 1, lineHeight: 1.25 }}>{cat.v}</div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: cat.color, background: "rgba(255,255,255,0.55)", padding: "2px 7px", borderRadius: 999, flexShrink: 0 }}>{totalCat}</div>
@@ -5419,7 +5459,10 @@ function TemplatesModule({ templates, persistTemplates, categorias, persistCateg
                       key={t.id}
                       className="tmpl-card"
                       onClick={() => setToPreview(t)}
-                      style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 13px", cursor: "pointer" }}
+                      draggable={!soLeitura}
+                      onDragStart={(e) => { e.stopPropagation(); setArrastandoTemplateId(t.id); }}
+                      onDragEnd={() => { setArrastandoTemplateId(null); setCategoriaSobreDrop(null); }}
+                      style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 13px", cursor: "pointer", opacity: arrastandoTemplateId === t.id ? 0.4 : 1 }}
                     >
                       <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
                         <div style={{ width: 20, height: 20, borderRadius: 999, background: cat.bg, color: cat.color, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>
