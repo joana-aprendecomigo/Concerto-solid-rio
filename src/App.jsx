@@ -7198,14 +7198,15 @@ function DashboardModule({ artists, spaces, partners, tasks, members, user, soLe
     });
 
     allTasks.forEach((t) => {
-      if (!t.responsavel) return;
-      const registo = garantir(t.responsavel);
-      if (!registo) return;
-      registo.tarefasAtribuidas += 1;
-      if (t.estado === "Concluída") {
-        registo.tarefasConcluidas += 1;
-        if (t.concluidaEm) registo.diasAtividade.add(aChaveDia(t.concluidaEm));
-      }
+      (t.responsaveis || []).forEach((resp) => {
+        const registo = garantir(resp);
+        if (!registo) return;
+        registo.tarefasAtribuidas += 1;
+        if (t.estado === "Concluída") {
+          registo.tarefasConcluidas += 1;
+          if (t.concluidaEm) registo.diasAtividade.add(aChaveDia(t.concluidaEm));
+        }
+      });
     });
 
     allContacts.forEach((c) => { if (c.responsavel) garantir(c.responsavel).contactosAtribuidos += 1; });
@@ -7243,8 +7244,8 @@ function DashboardModule({ artists, spaces, partners, tasks, members, user, soLe
       }
     });
     allTasks.forEach((t) => {
-      if (t.estado === "Concluída" && t.concluidaEm && dentro(t.concluidaEm) && t.responsavel) {
-        tarefasSemana[t.responsavel] = (tarefasSemana[t.responsavel] || 0) + 1;
+      if (t.estado === "Concluída" && t.concluidaEm && dentro(t.concluidaEm)) {
+        (t.responsaveis || []).forEach((resp) => { tarefasSemana[resp] = (tarefasSemana[resp] || 0) + 1; });
       }
     });
     const confirmacoesEquipa = allEvents.filter((ev) => ev.tipo === "estado" && ev.para === "Confirmado" && dentro(ev.data)).length;
@@ -7561,7 +7562,7 @@ function DashboardModule({ artists, spaces, partners, tasks, members, user, soLe
                   {tarefasStats.atrasadas.slice(0, 6).map((t) => (
                     <div key={t.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: C.ink, background: "#fff", borderRadius: 9, padding: "8px 12px" }}>
                       <span style={{ fontWeight: 600 }}>{t.titulo}</span>
-                      <span style={{ color: C.inkSoft }}>{t.responsavel || "por atribuir"} · limite {t.dataLimite}</span>
+                      <span style={{ color: C.inkSoft }}>{(t.responsaveis || []).join(", ") || "por atribuir"} · limite {t.dataLimite}</span>
                     </div>
                   ))}
                 </div>

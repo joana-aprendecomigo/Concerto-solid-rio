@@ -236,10 +236,12 @@ export function categoriaTemplateParaBD(c) {
 // ---------------------------------------------------------------------------
 
 export function tarefaDaBD(row) {
+  // "responsaveis" é a coluna atual (text[]); "responsavel" (texto único) é lida como recurso para
+  // linhas antigas que a migration ainda não tenha convertido no momento da leitura.
   const t = {
     id: row.id,
     titulo: ouVazio(row.titulo),
-    responsavel: ouVazio(row.responsavel),
+    responsaveis: Array.isArray(row.responsaveis) ? row.responsaveis.filter(Boolean) : (row.responsavel ? [row.responsavel] : []),
     dataLimite: ouVazio(row.data_limite),
     estado: row.estado,
     prioridade: row.prioridade,
@@ -266,7 +268,7 @@ export function tarefaParaBD(t) {
   return {
     id: t.id,
     titulo: ouVazio(t.titulo),
-    responsavel: t.responsavel || null,
+    responsaveis: t.responsaveis && t.responsaveis.length ? t.responsaveis : null,
     data_limite: t.dataLimite || null,
     estado: t.estado || "Por fazer",
     prioridade: t.prioridade || "Média",
