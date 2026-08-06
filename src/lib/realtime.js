@@ -22,6 +22,9 @@ const CHAVES_AFETADAS = {
   contacts: [CHAVES.ARTISTAS, CHAVES.ESPACOS, CHAVES.PARCEIROS],
   contact_events: [CHAVES.ARTISTAS, CHAVES.ESPACOS, CHAVES.PARCEIROS],
   templates: [CHAVES.TEMPLATES],
+  // Uma secção nova, renomeada ou reordenada também muda o que os templates
+  // mostram (nome, cor, posição) — as duas chaves relêem juntas.
+  template_categorias: [CHAVES.TEMPLATES, CHAVES.CATEGORIAS_TEMPLATE],
   tasks: [CHAVES.TAREFAS],
   documents: [CHAVES.DOCUMENTOS],
   profiles: [CHAVES.MEMBROS],

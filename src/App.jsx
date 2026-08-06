@@ -735,6 +735,7 @@ const KEY_SPACES = "ymec_spaces_v1";
 const KEY_PARTNERS = "ymec_partners_v1";
 const KEY_MEMBERS = "ymec_members_v1";
 const KEY_TEMPLATES = "ymec_templates_v1";
+const KEY_CATEGORIAS_TEMPLATE = "ymec_template_categorias_v1";
 const KEY_TASKS = "ymec_tasks_v1";
 const KEY_DOCUMENTS = "ymec_documents_v1";
 
@@ -776,6 +777,9 @@ export default function App() {
   const [spaces, setSpaces] = useState(null);
   const [partners, setPartners] = useState(null);
   const [templates, setTemplates] = useState(null);
+  // Secções do módulo Templates (Artistas, Contacto IPO, ...), editáveis pela
+  // equipa — deixaram de ser uma lista fixa no código (ver migration 0013).
+  const [categoriasTemplate, setCategoriasTemplate] = useState(null);
   const [tasks, setTasks] = useState(null);
   const [documents, setDocuments] = useState(null);
   const [module, setModuleKey] = useState(() => {
@@ -939,7 +943,7 @@ export default function App() {
 
     const resultados = await Promise.allSettled([
       ler(KEY_ARTISTS), ler(KEY_SPACES), ler(KEY_PARTNERS),
-      ler(KEY_TEMPLATES), ler(KEY_MEMBERS), ler(KEY_DOCUMENTS), ler(KEY_TASKS),
+      ler(KEY_TEMPLATES), ler(KEY_CATEGORIAS_TEMPLATE), ler(KEY_MEMBERS), ler(KEY_DOCUMENTS), ler(KEY_TASKS),
     ]);
 
     const falhas = resultados.filter((r) => r.status === "rejected");
@@ -953,7 +957,7 @@ export default function App() {
 
     const [
       artistasLidos, espacosLidos, parceirosLidos,
-      templatesLidos, membrosLidos, documentosLidos, tarefasLidas,
+      templatesLidos, categoriasLidas, membrosLidos, documentosLidos, tarefasLidas,
     ] = resultados.map((r) => r.value);
 
     // Os dados iniciais (artistas, espaços, templates e tarefas) já vivem na
@@ -964,11 +968,17 @@ export default function App() {
     const espacos = espacosLidos.length ? espacosLidos : mergeByNome([], SEED_ESPACOS);
     const templatesFinal = templatesLidos.length ? templatesLidos : mergeByNome([], SEED_TEMPLATES);
     const tarefas = tarefasLidas.length ? tarefasLidas : mergeTasksByTituloResp([], SEED_TASKS);
+    // As categorias vivem sempre na base de dados desde a migration 0013 —
+    // ao contrário dos restantes, não há lista de semente para as recriar
+    // aqui: se vierem vazias é porque a migration ainda não correu, e
+    // inventar seis categorias no cliente só esconderia esse problema real.
+    const categorias = categoriasLidas;
 
     setArtists(artistas);
     setSpaces(espacos);
     setPartners(parceirosLidos);
     setTemplates(templatesFinal);
+    setCategoriasTemplate(categorias);
     setMembers(membrosLidos);
     setDocuments(documentosLidos);
     setTasks(tarefas);
@@ -1063,6 +1073,11 @@ export default function App() {
   const persistTemplates = async (next) => {
     setTemplates(next);
     await gravar(KEY_TEMPLATES, next);
+  };
+
+  const persistCategoriasTemplate = async (next) => {
+    setCategoriasTemplate(next);
+    await gravar(KEY_CATEGORIAS_TEMPLATE, next);
   };
 
   const persistTasks = async (next) => {
@@ -1704,6 +1719,8 @@ export default function App() {
           <TemplatesModule
             templates={templates}
             persistTemplates={persistTemplates}
+            categorias={categoriasTemplate}
+            persistCategorias={persistCategoriasTemplate}
             user={user}
             soLeitura={soLeitura}
             showToast={showToast}
@@ -5785,7 +5802,9 @@ function TarefasModule({
   const [toDelete, setToDelete] = useState(null);
   const [draggingId, setDraggingId] = useState(null);
   const [dragOverEstado, setDragOverEstado] = useState(null);
-  const [filterResp, setFilterResp] = useState("Todos");
+  // por defeito mostra as tarefas do utilizador com sessão iniciada; qualquer
+  // pessoa pode depois mudar o filtro para ver as tarefas de outro membro
+  const [filterResp, setFilterResp] = useState(user || "Todos");
   const [filterPrioridade, setFilterPrioridade] = useState("Todas");
   const [detalheTask, setDetalheTask] = useState(null); // tarefa automática aberta em detalhe
 
@@ -5899,8 +5918,8 @@ function TarefasModule({
                 onDragLeave={() => setDragOverEstado((s) => (s === coluna.v ? null : s))}
                 onDrop={(e) => { e.preventDefault(); largarNaColuna(coluna.v); }}
                 style={{
-                  background: aReceberDrag ? coluna.bg : "#FAFBFC",
-                  border: `1.5px dashed ${aReceberDrag ? coluna.color : C.line}`,
+                  background: aReceberDrag ? coluna.bg : C.grayBg,
+                  border: `1.5px dashed ${aReceberDrag ? coluna.color : "#D5D9E3"}`,
                   borderRadius: 14,
                   padding: 12,
                   minHeight: 160,
@@ -5932,12 +5951,12 @@ function TarefasModule({
                           onClick={() => { if (auto && podeGerir) setDetalheTask(t); }}
                           style={{
                             background: C.panel,
-                            border: `1px solid ${C.line}`,
+                            border: `1px solid #D5D9E3`,
                             borderRadius: 10,
                             padding: "10px 12px",
                             cursor: podeGerir ? (auto ? "pointer" : "grab") : "default",
                             opacity: draggingId === t.id ? 0.5 : 1,
-                            boxShadow: "0 1px 2px rgba(19,26,44,0.04)",
+                            boxShadow: "0 1px 3px rgba(19,26,44,0.08)",
                           }}
                         >
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 6 }}>
@@ -7124,7 +7143,7 @@ function DashboardModule({ artists, spaces, partners, tasks, members, user, soLe
       <div style={{ position: "relative", padding: "34px 36px 52px" }}>
 
         {/* ---------- cabeçalho ---------- */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 16, marginBottom: 30 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 16, marginBottom: 18 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             <div style={{
               width: 48, height: 48, borderRadius: 14, background: "rgba(255,255,255,0.1)",
@@ -7157,68 +7176,44 @@ function DashboardModule({ artists, spaces, partners, tasks, members, user, soLe
           </div>
         </div>
 
-        {/* ---------- equipa: cartões por membro — apenas os líderes podem filtrar o dashboard e
-             consultar as estatísticas individuais de qualquer membro da equipa (clicar num cartão
-             filtra as secções abaixo por essa pessoa; clicar de novo no cartão ativo remove o filtro) ---------- */}
+        {/* ---------- equipa: filtro compacto por membro — apenas os líderes podem filtrar o
+             dashboard e consultar as estatísticas individuais de qualquer membro da equipa ---------- */}
         {isLider(user) && (
-          <>
-            <DashSectionTitle icon={Users} title="Equipa" subtitle="Clica num cartão para veres apenas o trabalho e as estatísticas desse membro" />
-            <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fill, minmax(190px, 1fr))`, gap: 12, marginBottom: 30 }}>
-              {EQUIPA.map((m) => {
-                const reg = porMembro.find((x) => x.membro === m) || { emails: 0, confirmados: 0, tarefasConcluidas: 0, contactosAtribuidos: 0 };
-                const ativo = filterResp === m;
-                const iniciaisM = (m || "").trim().split(/\s+/).map((p) => p[0]).slice(0, 2).join("").toUpperCase();
-                return (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => setFilterResp(ativo ? "Todos" : m)}
-                    title={ativo ? `Remover filtro de "${m}"` : `Filtrar o dashboard por "${m}"`}
-                    style={{
-                      textAlign: "left", cursor: "pointer", borderRadius: 14, padding: "14px 15px",
-                      border: `1.5px solid ${ativo ? C.accent : "rgba(255,255,255,0.16)"}`,
-                      background: ativo ? "rgba(230,23,140,0.20)" : "rgba(255,255,255,0.08)",
-                      backdropFilter: "blur(6px)", color: "#fff", fontFamily: "Inter, sans-serif",
-                      transition: "background .15s ease, border-color .15s ease",
-                    }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                      <div style={{
-                        width: 28, height: 28, borderRadius: 999, flexShrink: 0,
-                        background: ativo ? C.accent : "rgba(255,255,255,0.16)",
-                        display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700,
-                      }}>
-                        {iniciaisM}
-                      </div>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 700, fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m}</div>
-                        {isLider(m) && <div style={{ fontSize: 9.5, color: "rgba(255,255,255,0.6)", fontWeight: 600, letterSpacing: 0.3 }}>LÍDER</div>}
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, fontSize: 10.5, color: "rgba(255,255,255,0.78)" }}>
-                      <span>{reg.contactosAtribuidos} contactos</span>
-                      <span>{reg.emails} e-mails</span>
-                      <span>{reg.tarefasConcluidas} tarefas</span>
-                    </div>
-                  </button>
-                );
-              })}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 22, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, color: "rgba(255,255,255,0.85)", fontSize: 12.5, fontWeight: 600 }}>
+              <Users size={14} color={C.accent} /> Equipa
             </div>
-          </>
+            <select
+              value={filterResp}
+              onChange={(e) => setFilterResp(e.target.value)}
+              style={{
+                padding: "8px 12px", borderRadius: 999, fontSize: 12.5, fontWeight: 600,
+                border: `1.5px solid ${filterResp !== "Todos" ? C.accent : "rgba(255,255,255,0.2)"}`,
+                background: filterResp !== "Todos" ? "rgba(230,23,140,0.20)" : "rgba(255,255,255,0.08)",
+                color: "#fff", fontFamily: "Inter, sans-serif", cursor: "pointer", backdropFilter: "blur(6px)",
+              }}
+              title="Filtrar o dashboard por membro da equipa"
+            >
+              <option value="Todos" style={{ color: "#000" }}>Toda a equipa</option>
+              {EQUIPA.map((m) => (
+                <option key={m} value={m} style={{ color: "#000" }}>{m}{isLider(m) ? " (líder)" : ""}</option>
+              ))}
+            </select>
+          </div>
         )}
 
         {/* ---------- visão geral ---------- */}
         {semCartaoSelecionado && (
           <>
             <DashSectionTitle icon={LayoutDashboard} title="Visão geral do projeto" subtitle="Toda a equipa" />
-            <div className="dash-grid-5" style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14, marginBottom: 16 }}>
+            <div className="dash-grid-5" style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14, marginBottom: 12 }}>
               <DashStatCard label="Total de contactos" value={overview.total} icon={Users} accent="#9DB4FF" />
               <DashStatCard label="Por contactar" value={overview.porContactar} icon={HelpCircle} accent="#C7CEDE" />
               <DashStatCard label="Em negociação" value={overview.emNegociacao} icon={Clock} accent="#FFC876" />
               <DashStatCard label="Confirmados" value={overview.confirmados} icon={Sparkles} accent="#FF8FCB" />
               <DashStatCard label="Recusados" value={overview.recusados} icon={XCircle} accent="#FF9FAE" />
             </div>
-            <div className="dash-grid-2" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16, marginBottom: 32 }}>
+            <div className="dash-grid-2" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16, marginBottom: 20 }}>
               <div style={panelStyle}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                   <div style={{ fontWeight: 700, fontSize: 14, color: C.ink }}>Progresso global até "Confirmado"</div>
@@ -7248,7 +7243,7 @@ function DashboardModule({ artists, spaces, partners, tasks, members, user, soLe
               title={isLider(user) ? `Estatísticas de ${alvoEstatisticasIndividuais}` : "As tuas estatísticas"}
               subtitle={`Atividade individual de ${alvoEstatisticasIndividuais}`}
             />
-            <div className="dash-grid-5" style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14, marginBottom: 32 }}>
+            <div className="dash-grid-5" style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14, marginBottom: 20 }}>
               <DashStatCard label="Contactos atribuídos" value={registoEstatisticasIndividuais.contactosAtribuidos} icon={Users} accent="#9DB4FF" />
               <DashStatCard label="E-mails enviados" value={registoEstatisticasIndividuais.emails} icon={Mail} accent="#7FDCE6" />
               <DashStatCard label="Confirmados" value={registoEstatisticasIndividuais.confirmados} icon={Sparkles} accent="#FF8FCB" />
@@ -7262,7 +7257,7 @@ function DashboardModule({ artists, spaces, partners, tasks, members, user, soLe
         {semCartaoSelecionado && (
           <>
             <DashSectionTitle icon={TrendingUp} title="Evolução dos contactos ao longo do tempo" subtitle={`Últimas ${SEMANAS_EVOLUCAO} semanas`} />
-            <div style={{ ...panelStyle, padding: "20px 20px 10px", marginBottom: 32 }}>
+            <div style={{ ...panelStyle, padding: "20px 20px 10px", marginBottom: 20 }}>
               <EvolutionChart weeks={evolucao} />
             </div>
           </>
@@ -7272,13 +7267,13 @@ function DashboardModule({ artists, spaces, partners, tasks, members, user, soLe
         {semCartaoSelecionado && (
           <>
             <DashSectionTitle icon={BarChart3} title="Desempenho da equipa" />
-            <div className="dash-grid-3" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 16 }}>
+            <div className="dash-grid-3" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 12 }}>
               <DashStatCard label="Taxa de resposta — 1º contacto" value={`${taxasResposta.primeiro}%`} icon={Mail} accent="#7FDCE6" />
               <DashStatCard label="Taxa de resposta — follow-ups" value={`${taxasResposta.followup}%`} icon={Workflow} accent="#FFC876" />
               <DashStatCard label="Tempo médio de resposta" value={taxasResposta.tempoMedioResposta !== null ? `${taxasResposta.tempoMedioResposta.toFixed(1)} dias` : "—"} icon={Clock} accent="#C7CEDE" />
             </div>
             {isLider(user) ? (
-              <div className="dash-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 32 }}>
+              <div className="dash-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
                 <div style={panelStyle}>
                   <div style={{ fontWeight: 700, fontSize: 14, color: C.ink, marginBottom: 14 }}>E-mails enviados por membro</div>
                   {porMembro.filter((m) => m.emails > 0 || m.tarefasConcluidas > 0 || m.contactosAtribuidos > 0).length === 0 ? (
@@ -7305,7 +7300,7 @@ function DashboardModule({ artists, spaces, partners, tasks, members, user, soLe
             </div>
           </div>
         ) : (
-          <div style={{ ...panelStyle, marginBottom: 32, display: "flex", alignItems: "center", gap: 10, color: C.inkSoft, fontSize: 12.5 }}>
+          <div style={{ ...panelStyle, marginBottom: 20, display: "flex", alignItems: "center", gap: 10, color: C.inkSoft, fontSize: 12.5 }}>
             <UserCircle2 size={16} color={C.gray} /> As estatísticas individuais de cada membro da equipa são visíveis apenas para os líderes.
           </div>
         )}
@@ -7316,13 +7311,13 @@ function DashboardModule({ artists, spaces, partners, tasks, members, user, soLe
         {semCartaoSelecionado && (
           <>
             <DashSectionTitle icon={ListChecks} title="Tarefas da equipa" />
-            <div className="dash-grid-3" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 16 }}>
+            <div className="dash-grid-3" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 12 }}>
               <DashStatCard label="Concluídas" value={tarefasStats.concluidas} icon={CheckSquare} accent="#8FE0B4" />
               <DashStatCard label="Pendentes (por fazer + em progresso)" value={tarefasStats.pendentes} icon={Clock} accent="#FFC876" />
               <DashStatCard label="Em atraso" value={tarefasStats.atrasadas.length} icon={AlertOctagon} accent="#FF9FAE" />
             </div>
             {tarefasStats.atrasadas.length > 0 && (
-              <div style={{ ...panelStyle, background: C.redBg, boxShadow: "0 14px 32px rgba(176,57,74,0.22)", marginBottom: 32 }}>
+              <div style={{ ...panelStyle, background: C.redBg, boxShadow: "0 14px 32px rgba(176,57,74,0.22)", marginBottom: 20 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 7, fontWeight: 700, fontSize: 13, color: C.red, marginBottom: 10 }}>
                   <AlertTriangle size={14} /> Tarefas em atraso — precisam de atenção
                 </div>
@@ -7343,7 +7338,7 @@ function DashboardModule({ artists, spaces, partners, tasks, members, user, soLe
         {semCartaoSelecionado && contactosEmRisco.length > 0 && (
           <>
             <DashSectionTitle icon={AlertOctagon} title="Contactos que precisam de atenção" subtitle="Aguardam resposta há 7 ou mais dias" />
-            <div style={{ ...panelStyle, padding: 0, overflow: "hidden", marginBottom: 32 }}>
+            <div style={{ ...panelStyle, padding: 0, overflow: "hidden", marginBottom: 20 }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <tbody>
                   {contactosEmRisco.map((c) => (
@@ -7370,12 +7365,12 @@ function DashboardModule({ artists, spaces, partners, tasks, members, user, soLe
               title="Contactos mortos ou sem movimento"
               subtitle={`Sem qualquer atividade há ${DIAS_CONTACTO_PARADO}+ dias, ou nunca chegaram a ser contactados`}
             />
-            <div className="dash-grid-3" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 16 }}>
+            <div className="dash-grid-3" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 12 }}>
               <DashStatCard label="Total parados" value={contactosParados.total} icon={AlertOctagon} accent="#C7CEDE" />
               <DashStatCard label="Pararam a meio da negociação" value={contactosParados.comAtividadeAntiga} icon={Clock} accent="#FFC876" />
               <DashStatCard label="Nunca chegaram a ser contactados" value={contactosParados.nuncaContactados} icon={HelpCircle} accent="#C7CEDE" />
             </div>
-            <div style={{ ...panelStyle, padding: 0, overflow: "hidden", marginBottom: 32 }}>
+            <div style={{ ...panelStyle, padding: 0, overflow: "hidden", marginBottom: 20 }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <tbody>
                   {contactosParados.linhas.map((c) => (
@@ -7405,14 +7400,14 @@ function DashboardModule({ artists, spaces, partners, tasks, members, user, soLe
         {/* ---------- gamificação ---------- */}
         <DashSectionTitle icon={Trophy} title="Motivação da equipa" subtitle="Objetivos, medalhas e consistência" />
 
-        <div style={{ ...panelStyle, display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
+        <div style={{ ...panelStyle, display: "flex", alignItems: "center", gap: 14, marginBottom: 12 }}>
           <div style={{ width: 40, height: 40, borderRadius: 12, background: C.accentSoft, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <Sparkles size={18} color={C.accent} />
           </div>
           <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>{mensagemIncentivo}</div>
         </div>
 
-        <div className="dash-grid-2" style={{ display: "grid", gridTemplateColumns: soLeitura ? "1fr" : "1fr 1fr", gap: 16, marginBottom: 16 }}>
+        <div className="dash-grid-2" style={{ display: "grid", gridTemplateColumns: soLeitura ? "1fr" : "1fr 1fr", gap: 16, marginBottom: 12 }}>
           {!soLeitura && (
           <div style={panelStyle}>
             <div style={{ display: "flex", alignItems: "center", gap: 7, fontWeight: 700, fontSize: 13.5, color: C.ink, marginBottom: 12 }}>

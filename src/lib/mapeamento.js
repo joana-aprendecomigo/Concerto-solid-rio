@@ -158,11 +158,17 @@ export function eventoParaBD(ev, contactId) {
 // templates
 // ---------------------------------------------------------------------------
 
-export function templateDaBD(row) {
+// `categoria` continua a viver na interface como o nome de texto da secção
+// (ex.: "Artistas") — é como o resto do código já a usa em todo o lado. Na
+// base de dados é uma referência (`categoria_id`) à tabela editável
+// `template_categorias` (ver migration 0013); a troca entre as duas formas
+// faz-se aqui, com o mapa de categorias já carregado por quem chama.
+export function templateDaBD(row, categoriasPorId) {
+  const categoria = categoriasPorId?.get(row.categoria_id);
   return {
     id: row.id,
     nome: ouVazio(row.nome),
-    categoria: row.categoria,
+    categoria: categoria?.nome || "",
     fase: row.fase,
     assunto: ouVazio(row.assunto),
     corpo: ouVazio(row.corpo),
@@ -174,17 +180,54 @@ export function templateDaBD(row) {
   };
 }
 
-export function templateParaBD(t) {
+export function templateParaBD(t, categoriasPorNome) {
+  const categoriaId = categoriasPorNome?.get(t.categoria)?.id;
+  if (!categoriaId) {
+    // Uma secção apagada entretanto por outra pessoa, ou um nome que já não
+    // existe — melhor falhar aqui, com uma mensagem clara, do que gravar um
+    // template "órfão" que a base de dados rejeitaria de qualquer forma
+    // (categoria_id not null).
+    throw new Error(`Secção "${t.categoria}" não encontrada — pode ter sido removida por outra pessoa.`);
+  }
   return {
     id: t.id,
     nome: ouVazio(t.nome),
-    categoria: t.categoria || "Artistas",
+    categoria_id: categoriaId,
     fase: Number(t.fase) || 1,
     assunto: ouVazio(t.assunto),
     corpo: ouVazio(t.corpo),
     intervalo_dias: Number(t.intervaloDias) || 10,
     criado_por: t.criadoPor || null,
     atualizado_por: t.atualizadoPor || null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// categorias de template (secções do módulo Templates)
+// ---------------------------------------------------------------------------
+
+export function categoriaTemplateDaBD(row) {
+  return {
+    id: row.id,
+    nome: ouVazio(row.nome),
+    cor: row.cor,
+    icone: row.icone,
+    ordem: row.ordem,
+    chaveSistema: row.chave_sistema || null,
+  };
+}
+
+export function categoriaTemplateParaBD(c) {
+  // Nunca se envia `chave_sistema`: é a base de dados que decide, na
+  // migration, que categorias são "de sistema" (Artistas/Espaços/Parceiros).
+  // Se viesse do interface, qualquer secção nova podia reivindicar a
+  // associação automática de outra.
+  return {
+    id: c.id,
+    nome: ouVazio(c.nome),
+    cor: c.cor || "#5B6478",
+    icone: c.icone || "Mail",
+    ordem: Number.isFinite(c.ordem) ? c.ordem : 0,
   };
 }
 

@@ -17,6 +17,7 @@ import {
   contactoDaBD, contactoParaBD,
   eventoParaBD,
   templateDaBD, templateParaBD,
+  categoriaTemplateDaBD, categoriaTemplateParaBD,
   tarefaDaBD, tarefaParaBD,
   documentoDaBD, documentoParaBD,
 } from "./mapeamento.js";
@@ -27,6 +28,7 @@ export const CHAVES = {
   PARCEIROS: "ymec_partners_v1",
   MEMBROS: "ymec_members_v1",
   TEMPLATES: "ymec_templates_v1",
+  CATEGORIAS_TEMPLATE: "ymec_template_categorias_v1",
   TAREFAS: "ymec_tasks_v1",
   DOCUMENTOS: "ymec_documents_v1",
 };
@@ -79,14 +81,52 @@ async function lerContactos(tipo) {
   return (data || []).map(contactoDaBD);
 }
 
+// Categorias do módulo Templates (secções como "Artistas", "Contacto IPO"),
+// editáveis pela equipa — deixaram de ser um enum fixo (ver migration 0013).
+// Guardadas à parte, como os papéis dos membros, porque `template.categoria`
+// continua a viver na interface como nome de texto: é o que evita reescrever
+// todos os sítios que já compunham esse texto.
+const categoriasPorId = new Map();
+const categoriasPorNome = new Map();
+
+// Relê sempre que é pedida (é uma tabela pequena) e atualiza os mapas
+// auxiliares usados por `lerTemplates`/`guardarTemplates` — assim uma secção
+// criada ou renomeada por outra pessoa fica visível na próxima leitura, sem
+// depender de nada ter invalidado uma cache à parte.
+async function lerCategoriasTemplate() {
+  const { data, error } = await supabase
+    .from("template_categorias")
+    .select("*")
+    .order("ordem");
+  if (error) throw error;
+  categoriasPorId.clear();
+  categoriasPorNome.clear();
+  (data || []).forEach((c) => {
+    categoriasPorId.set(c.id, c);
+    categoriasPorNome.set(c.nome, c);
+  });
+  return (data || []).map(categoriaTemplateDaBD);
+}
+
 async function lerTemplates() {
+  // As categorias têm de estar carregadas antes: é delas que vem o nome que
+  // substitui `categoria_id` na volta para a interface.
+  await lerCategoriasTemplate();
+
   const { data, error } = await supabase
     .from("templates")
     .select("*")
-    .order("categoria")
     .order("fase");
   if (error) throw error;
-  return (data || []).map(templateDaBD);
+  return (data || [])
+    .map((row) => templateDaBD(row, categoriasPorId))
+    // A ordenação por categoria segue a ordem das secções, não o alfabeto —
+    // é a mesma ordem que a pessoa definiu ao arrastar as secções.
+    .sort((a, b) => {
+      const oa = categoriasPorNome.get(a.categoria)?.ordem ?? 0;
+      const ob = categoriasPorNome.get(b.categoria)?.ordem ?? 0;
+      return oa - ob || a.fase - b.fase;
+    });
 }
 
 async function lerTarefas() {
@@ -131,6 +171,7 @@ async function ler(chave) {
   const tipo = TIPO_POR_CHAVE[chave];
   if (tipo) return lerContactos(tipo);
   if (chave === CHAVES.TEMPLATES) return lerTemplates();
+  if (chave === CHAVES.CATEGORIAS_TEMPLATE) return lerCategoriasTemplate();
   if (chave === CHAVES.TAREFAS) return lerTarefas();
   if (chave === CHAVES.DOCUMENTOS) return lerDocumentos();
   if (chave === CHAVES.MEMBROS) return lerMembros();
@@ -379,7 +420,16 @@ async function guardarMembros() {
 async function guardar(chave, valor) {
   const tipo = TIPO_POR_CHAVE[chave];
   if (tipo) return guardarContactos(chave, tipo, valor);
-  if (chave === CHAVES.TEMPLATES) return guardarSimples(chave, "templates", valor, templateParaBD);
+  if (chave === CHAVES.TEMPLATES) {
+    // Garante que o mapa de categorias está atual antes de resolver
+    // `categoria` (nome) → `categoria_id` — uma secção criada há segundos,
+    // na mesma sessão, tem de já lá estar.
+    if (!categoriasPorNome.size) await lerCategoriasTemplate();
+    return guardarSimples(chave, "templates", valor, (t) => templateParaBD(t, categoriasPorNome));
+  }
+  if (chave === CHAVES.CATEGORIAS_TEMPLATE) {
+    return guardarSimples(chave, "template_categorias", valor, categoriaTemplateParaBD);
+  }
   if (chave === CHAVES.TAREFAS) return guardarSimples(chave, "tasks", valor, tarefaParaBD);
   if (chave === CHAVES.DOCUMENTOS) return guardarSimples(chave, "documents", valor, documentoParaBD);
   if (chave === CHAVES.MEMBROS) return guardarMembros(valor);

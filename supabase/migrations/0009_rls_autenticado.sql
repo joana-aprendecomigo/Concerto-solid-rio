@@ -124,6 +124,24 @@ create policy templates_apagar on templates
   for delete to authenticated using (e_lider());
 
 -- ---------------------------------------------------------------------------
+-- template_categorias — secções do módulo Templates (ver 0013)
+-- ---------------------------------------------------------------------------
+
+drop policy if exists aberto_template_categorias on template_categorias;
+
+create policy template_categorias_leitura on template_categorias
+  for select to authenticated using (true);
+
+create policy template_categorias_criar on template_categorias
+  for insert to authenticated with check (true);
+
+create policy template_categorias_editar on template_categorias
+  for update to authenticated using (true) with check (true);
+
+create policy template_categorias_apagar on template_categorias
+  for delete to authenticated using (e_lider());
+
+-- ---------------------------------------------------------------------------
 -- tasks
 -- ---------------------------------------------------------------------------
 
