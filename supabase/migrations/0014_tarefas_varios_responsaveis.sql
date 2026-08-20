@@ -23,33 +23,41 @@ where responsaveis = '{}';
 -- Grupos de linhas que são "a mesma tarefa" feita por pessoas diferentes:
 -- mesmo título, estado, data limite e origem (contacto/evento/fase iguais, ou
 -- ambas sem origem nenhuma).
-create temporary table tasks_grupos_fusao as
-select
-  titulo, estado, data_limite,
-  coalesce(origem_contact_id::text, '') as origem_contact_id,
-  coalesce(origem_evento, '')           as origem_evento,
-  coalesce(origem_fase, -1)             as origem_fase,
-  array_agg(id order by criado_em asc)          as ids,
-  array_agg(responsaveis order by criado_em asc) as todos_responsaveis
-from tasks
-group by 1, 2, 3, 4, 5, 6
-having count(*) > 1;
-
+-- Tudo num só statement, com CTEs: uma tabela temporária não sobrevive de forma
+-- fiável entre statements no SQL Editor do Supabase (o pool pode servir cada um
+-- numa sessão diferente, e as temp tables são por sessão).
+--
+-- Os responsáveis do grupo são recolhidos por subquery sobre os ids, e não por
+-- `array_agg(responsaveis)`: agregar uma coluna text[] produz um array
+-- multidimensional (não um array de arrays), que o unnest achata de uma vez só
+-- — e a agregação falha à partida se as linhas do grupo tiverem números
+-- diferentes de responsáveis.
+with grupos as (
+  select array_agg(id order by criado_em asc) as ids
+  from tasks
+  group by
+    titulo, estado, data_limite,
+    coalesce(origem_contact_id::text, ''),
+    coalesce(origem_evento, ''),
+    coalesce(origem_fase, -1)
+  having count(*) > 1
+),
 -- A linha mais antiga do grupo fica com todos os responsáveis juntos.
-update tasks
-set responsaveis = (
-  select array_agg(distinct r)
-  from unnest(g.todos_responsaveis) as lista, unnest(lista) as r
+fundir as (
+  update tasks
+  set responsaveis = coalesce((
+    select array_agg(distinct r)
+    from tasks linha, unnest(linha.responsaveis) as r
+    where linha.id = any (g.ids)
+  ), '{}')
+  from grupos g
+  where tasks.id = g.ids[1]
+  returning tasks.id
 )
-from tasks_grupos_fusao g
-where tasks.id = g.ids[1];
-
 -- As restantes linhas do grupo (já fundidas na primeira) são removidas.
 delete from tasks
-using tasks_grupos_fusao g
+using grupos g
 where tasks.id = any (g.ids[2:array_length(g.ids, 1)]);
-
-drop table tasks_grupos_fusao;
 
 -- A policy de edição e o trigger de proteção de atribuição (migration 0009)
 -- comparavam `responsavel = membro_atual()` / `new.responsavel is distinct

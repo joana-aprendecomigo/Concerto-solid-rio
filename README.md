@@ -27,6 +27,20 @@ Editor do Supabase:
 | `0002_rls.sql` | Row Level Security (ver aviso abaixo) |
 | `0004_seed.sql` | Equipa, artistas, espaços, templates e tarefas já recolhidos |
 | `0005_realtime.sql` | Ativa a sincronização instantânea |
+| `0006_responsavel_livre.sql` | Responsável do contacto deixa de ser uma lista fechada |
+| `0007_fase.sql` | Fase da negociação no contacto |
+| `0008_codigo_acesso.sql` | Entrada por código de acesso |
+| `0009_rls_autenticado.sql` | Políticas de líderes vs. membros |
+| `0010_dados_membro.sql` | Dados do perfil de cada membro |
+| `0011_tarefa_auto_dispensada.sql` | Não recriar a tarefa automática que foi eliminada |
+| `0012_corrigir_atualizado_em.sql` | Corrige o carimbo de última alteração |
+| `0013_categorias_template_editaveis.sql` | Secções de templates editáveis |
+| `0014_tarefas_varios_responsaveis.sql` | Uma tarefa passa a ter vários responsáveis (`tasks.responsaveis`) |
+
+**Correr sempre as migrations novas antes de publicar uma versão nova do site.**
+O código escreve para as colunas mais recentes; com a base de dados atrasada,
+as gravações falham em silêncio com erros de *schema cache* e as alterações
+perdem-se.
 
 `0003_rls_autenticado.sql.disabled` **não deve ser corrido já** — ver a secção
 seguinte.
