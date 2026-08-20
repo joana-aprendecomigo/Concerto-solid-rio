@@ -268,7 +268,9 @@ export function tarefaParaBD(t) {
   return {
     id: t.id,
     titulo: ouVazio(t.titulo),
-    responsaveis: t.responsaveis && t.responsaveis.length ? t.responsaveis : null,
+    // a coluna é `text[] not null default '{}'`: uma tarefa sem responsável é um
+    // array vazio, não null — enviar null faz o upsert falhar por violação de not-null
+    responsaveis: Array.isArray(t.responsaveis) ? t.responsaveis.filter(Boolean) : [],
     data_limite: t.dataLimite || null,
     estado: t.estado || "Por fazer",
     prioridade: t.prioridade || "Média",
