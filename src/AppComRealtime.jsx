@@ -108,16 +108,24 @@ export default function AppComRealtime() {
       return Boolean(emCampo || modalAberto || acabouDeMexer);
     };
 
+    // Intervalo mínimo entre duas remontagens. Se a base de dados estiver lenta,
+    // o eco das nossas próprias gravações chega fora da janela de proteção e
+    // cada remontagem provocava gravações novas, que provocavam outra
+    // remontagem: a aplicação ficava a piscar sem parar.
+    const INTERVALO_MINIMO_MS = 60000;
+    let ultimaRemontagem = 0;
+
     let timer = null;
     const tentarAtualizar = () => {
       clearTimeout(timer);
       timer = setTimeout(() => {
-        if (ocupado()) {
+        if (ocupado() || Date.now() - ultimaRemontagem < INTERVALO_MINIMO_MS) {
           pendente.current = true;
           tentarAtualizar(); // volta a tentar mais tarde
           return;
         }
         pendente.current = false;
+        ultimaRemontagem = Date.now();
         setVersao((v) => v + 1);
       }, 1500);
     };

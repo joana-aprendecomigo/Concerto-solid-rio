@@ -15,7 +15,7 @@ import { CHAVES, limparCache, escreveuAgora } from "./storageSupabase.js";
 
 // Janela, depois de gravarmos, durante a qual as notificações do Realtime são
 // tratadas como eco das nossas próprias alterações e não provocam releitura.
-const ECO_MS = 3000;
+const ECO_MS = 10000;
 
 // Que chaves do interface são afetadas por cada tabela.
 const CHAVES_AFETADAS = {
