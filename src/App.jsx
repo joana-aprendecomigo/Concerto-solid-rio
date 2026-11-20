@@ -1094,7 +1094,7 @@ export default function App() {
   const persistTasks = async (next) => {
     tasksRef.current = next;
     setTasks(next);
-    await gravar(KEY_TASKS, next);
+    return await gravar(KEY_TASKS, next);
   };
 
   const persistDocuments = async (next) => {
@@ -1337,12 +1337,28 @@ export default function App() {
             t.origem.evento === "followup" && t.origem.fase === faseSeguinte
         );
         if (jaTemPendente) continue;
+        // A tarefa pode ter sido eliminada ou nunca ter chegado a ser gravada, mas
+        // o evento na timeline fica. Sem esta verificação, cada arranque e cada
+        // passagem do scan acrescentava mais um evento igual ao mesmo contacto
+        // (milhares de eventos, e a plataforma deixou de conseguir carregar).
+        // Só conta o que aconteceu depois do último envio: um novo envio inicia
+        // um ciclo novo.
+        const desdeEnvio = new Date(contact.dataUltimoEnvio).getTime();
+        const jaTemEvento = (contact.historico || []).some(
+          (h) => (h.tipo === "followup_auto" || h.tipo === "followup_criado") &&
+            Number(h.fase) === faseSeguinte &&
+            new Date(h.data).getTime() >= desdeEnvio
+        );
+        if (jaTemEvento) continue;
         const { novaTarefa, updated } = await criarFollowupTask(tipo, contact, { auto: true, dias });
         novasTarefas.push(novaTarefa);
         listaAtualizada = (listaAtualizada || list).map((c) => (c.id === contact.id ? updated : c));
       }
       if (novasTarefas.length) {
-        await persistTasks([...novasTarefas, ...(tasksRef.current || [])]);
+        const gravou = await persistTasks([...novasTarefas, ...(tasksRef.current || [])]);
+        // Se as tarefas não ficaram gravadas, não se regista o evento na
+        // timeline: ficaria um evento sem tarefa, e o scan repetia-o.
+        if (!gravou) continue;
       }
       if (listaAtualizada) {
         await persist(listaAtualizada);
